@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # ==========================================================
+  # PostgreSQL - Catalog indexer database
+  # ==========================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: mycelix-music-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mycelix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mycelix_dev_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-mycelix_music}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mycelix}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================
+  # Redis - Caching layer
+  # ==========================================================
+  redis:
+    image: redis:7-alpine
+    container_name: mycelix-music-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================
+  # Ceramic - DKG node for epistemic claims
+  # ==========================================================
+  ceramic:
+    image: ceramicnetwork/js-ceramic:latest
+    container_name: mycelix-music-ceramic
+    restart: unless-stopped
+    command: daemon --network local
+    ports:
+      - "7007:7007"
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ceramic_data:/root/.ceramic
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7007/api/v0/node/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      - ipfs
+
+  # ==========================================================
+  # IPFS - Distributed file storage
+  # ==========================================================
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: mycelix-music-ipfs
+    restart: unless-stopped
+    ports:
+      - "4001:4001"     # P2P
+      - "5001:5001"     # API
+      - "8080:8080"     # Gateway
+    volumes:
+      - ipfs_data:/data/ipfs
+    environment:
+      IPFS_PROFILE: server
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ==========================================================
+  # Backend API (Node.js/Express)
+  # ==========================================================
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: mycelix-music-api
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      NODE_ENV: development
+      PORT: 3100
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mycelix}:${POSTGRES_PASSWORD:-mycelix_dev_pass}@postgres:5432/${POSTGRES_DB:-mycelix_music}
+      REDIS_URL: redis://redis:6379
+      CERAMIC_URL: http://ceramic:7007
+      IPFS_API_URL: http://ipfs:5001
+      RPC_URL: ${RPC_URL:-http://host.docker.internal:8545}
+      ROUTER_ADDRESS: ${NEXT_PUBLIC_ROUTER_ADDRESS}
+      FLOW_TOKEN_ADDRESS: ${NEXT_PUBLIC_FLOW_TOKEN_ADDRESS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ceramic:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # ==========================================================
+  # Frontend (Next.js)
+  # ==========================================================
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: mycelix-music-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3100
+      NEXT_PUBLIC_ROUTER_ADDRESS: ${NEXT_PUBLIC_ROUTER_ADDRESS}
+      NEXT_PUBLIC_FLOW_TOKEN_ADDRESS: ${NEXT_PUBLIC_FLOW_TOKEN_ADDRESS}
+      NEXT_PUBLIC_CHAIN_ID: ${CHAIN_ID:-31337}
+      NEXT_PUBLIC_RPC_URL: ${RPC_URL:-http://localhost:8545}
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ceramic_data:
+    driver: local
+  ipfs_data:
+    driver: local
+
+networks:
+  default:
+    name: mycelix-music-network
