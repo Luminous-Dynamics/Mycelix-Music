@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { Play, Heart, Gift, TrendingUp, Filter, Search } from 'lucide-react';
-import { EconomicStrategySDK, PaymentModel } from '@mycelix/sdk';
+import { EconomicStrategySDK, PaymentModel } from '@/lib';
 import { mockSongs, type Song } from '../data/mockSongs';
 import MusicPlayer from '../components/MusicPlayer';
 import Navigation from '../components/Navigation';
@@ -279,14 +279,14 @@ export default function DiscoverPage() {
               <div className="flex space-x-2">
                 <button
                   onClick={() => handleStreamSong(song)}
-                  disabled={playingSong === song.id}
+                  disabled={playingSong?.id === song.id}
                   className={`flex-1 px-4 py-2 rounded-lg font-medium transition ${
-                    playingSong === song.id
+                    playingSong?.id === song.id
                       ? 'bg-green-600 text-white'
                       : 'bg-purple-600 hover:bg-purple-700 text-white'
                   }`}
                 >
-                  {playingSong === song.id ? (
+                  {playingSong?.id === song.id ? (
                     <>
                       <Play className="w-4 h-4 inline mr-2" />
                       Playing...

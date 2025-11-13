@@ -1,4 +1,4 @@
-import { PaymentModel } from '@mycelix/sdk';
+import { PaymentModel } from '@/lib';
 
 export interface Song {
   id: string;

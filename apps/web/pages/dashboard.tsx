@@ -13,7 +13,7 @@ import {
   ArrowDownRight
 } from 'lucide-react';
 import { mockSongs, type Song } from '../data/mockSongs';
-import { PaymentModel } from '@mycelix/sdk';
+import { PaymentModel } from '@/lib';
 import Navigation from '../components/Navigation';
 
 export default function DashboardPage() {
