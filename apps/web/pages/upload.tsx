@@ -3,8 +3,8 @@ import { usePrivy } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { Upload, Music, Check, ArrowRight, Image, AlertTriangle } from 'lucide-react';
 import { EconomicStrategyWizard } from '../src/components/EconomicStrategyWizard';
-import { EconomicStrategySDK } from '@mycelix/sdk';
-import type { EconomicConfig } from '@mycelix/sdk';
+import { EconomicStrategySDK } from '@/lib';
+import type { EconomicConfig } from '@/lib';
 import { mockSongs } from '../data/mockSongs';
 import Navigation from '../components/Navigation';
 

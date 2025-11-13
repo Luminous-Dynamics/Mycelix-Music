@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { Play, Heart, Gift, TrendingUp, Filter, Search } from 'lucide-react';
-import { EconomicStrategySDK, PaymentModel } from '@mycelix/sdk';
+import { EconomicStrategySDK, PaymentModel } from '@/lib';
 import { mockSongs, type Song } from '../data/mockSongs';
 import MusicPlayer from '../components/MusicPlayer';
 import Navigation from '../components/Navigation';
@@ -165,7 +165,7 @@ export default function DiscoverPage() {
                 <select
                   value={selectedGenre}
                   onChange={(e) => setSelectedGenre(e.target.value)}
-                  className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-purple-400 focus:outline-none"
+                  className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-purple-400 focus:outline-none [&>option]:bg-gray-900 [&>option]:text-white"
                 >
                   <option value="all">All Genres</option>
                   <option value="Electronic">Electronic</option>
@@ -181,7 +181,7 @@ export default function DiscoverPage() {
                 <select
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-purple-400 focus:outline-none"
+                  className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-purple-400 focus:outline-none [&>option]:bg-gray-900 [&>option]:text-white"
                 >
                   <option value="all">All Models</option>
                   <option value={PaymentModel.PAY_PER_STREAM}>Pay Per Stream ($0.01)</option>
@@ -214,7 +214,7 @@ export default function DiscoverPage() {
           </div>
         )}
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6">
           {filteredSongs?.map((song, index) => (
             <div
               key={song.id}
@@ -279,14 +279,14 @@ export default function DiscoverPage() {
               <div className="flex space-x-2">
                 <button
                   onClick={() => handleStreamSong(song)}
-                  disabled={playingSong === song.id}
+                  disabled={playingSong?.id === song.id}
                   className={`flex-1 px-4 py-2 rounded-lg font-medium transition ${
-                    playingSong === song.id
+                    playingSong?.id === song.id
                       ? 'bg-green-600 text-white'
                       : 'bg-purple-600 hover:bg-purple-700 text-white'
                   }`}
                 >
-                  {playingSong === song.id ? (
+                  {playingSong?.id === song.id ? (
                     <>
                       <Play className="w-4 h-4 inline mr-2" />
                       Playing...

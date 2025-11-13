@@ -6,89 +6,79 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
- * @title IEconomicStrategy
- * @notice Interface that all economic strategy contracts must implement
- */
-interface IEconomicStrategy {
-    enum PaymentType {
-        STREAM,          // Per-stream payment
-        TIP,             // Voluntary tip
-        SUBSCRIPTION,    // Monthly subscription
-        PURCHASE         // One-time purchase
-    }
-
-    /**
-     * @notice Process a payment according to this strategy's rules
-     * @param songId Unique identifier for the song
-     * @param listener Address of the listener
-     * @param amount Amount of FLOW tokens being paid
-     * @param paymentType Type of payment (stream, tip, subscription, etc.)
-     */
-    function processPayment(
-        bytes32 songId,
-        address listener,
-        uint256 amount,
-        PaymentType paymentType
-    ) external;
-
-    /**
-     * @notice Get the minimum payment amount for this strategy
-     * @param songId Unique identifier for the song
-     * @param paymentType Type of payment
-     * @return Minimum payment amount in FLOW tokens
-     */
-    function getMinPayment(bytes32 songId, PaymentType paymentType) external view returns (uint256);
-
-    /**
-     * @notice Check if a listener is authorized to access a song
-     * @param songId Unique identifier for the song
-     * @param listener Address of the listener
-     * @return True if authorized
-     */
-    function isAuthorized(bytes32 songId, address listener) external view returns (bool);
-}
-
-/**
  * @title EconomicStrategyRouter
- * @notice Core routing contract that delegates payment processing to pluggable strategy contracts
- * @dev Each song can use a different economic strategy, enabling modular economics
+ * @notice Core routing contract that delegates listener payments to pluggable economic strategy contracts
+ * @dev Artists can register each song with a different strategy. The router collects FLOW, applies protocol fees,
+ *      and forwards net payments plus context to the selected strategy. It also exposes helpful read methods for the UI.
  */
 contract EconomicStrategyRouter is Ownable, ReentrancyGuard {
-    // FLOW token interface (from living-treasury)
+    // ============================================================
+    // Types
+    // ============================================================
+
+    enum PaymentType {
+        STREAM,
+        DOWNLOAD,
+        TIP,
+        PATRONAGE,
+        NFT_ACCESS
+    }
+
+    struct Split {
+        address recipient;
+        uint256 basisPoints; // 10000 = 100%
+        string role;
+    }
+
+    struct Payment {
+        bytes32 songId;
+        address listener;
+        uint256 amount; // Gross amount paid before protocol fee
+        PaymentType paymentType;
+        uint256 timestamp;
+    }
+
+    // ============================================================
+    // State
+    // ============================================================
+
     IERC20 public immutable flowToken;
 
-    // Mapping: strategyId => strategy contract address
+    // Strategy registry
     mapping(bytes32 => address) public registeredStrategies;
 
-    // Mapping: songId => strategyId
-    mapping(bytes32 => bytes32) public songStrategy;
+    // Song configuration
+    mapping(bytes32 => address) public songStrategy;      // songId => strategy contract address
+    mapping(bytes32 => bytes32) public songStrategyId;    // songId => strategy identifier
+    mapping(bytes32 => address) public songArtist;        // songId => artist wallet
 
-    // Mapping: songId => artist address
-    mapping(bytes32 => address) public songArtist;
-
-    // Protocol fee (in basis points, 100 = 1%)
+    // Protocol economics
     uint256 public protocolFeeBps = 100; // 1%
-
-    // Protocol treasury address
     address public protocolTreasury;
 
+    // Payment history
+    mapping(bytes32 => Payment[]) private paymentHistory;
+
+    // ============================================================
     // Events
+    // ============================================================
+
     event StrategyRegistered(bytes32 indexed strategyId, address strategyAddress);
-    event SongRegistered(bytes32 indexed songId, bytes32 strategyId, address artist);
+    event SongRegistered(bytes32 indexed songId, bytes32 indexed strategyId, address indexed artist);
+    event SongStrategyChanged(bytes32 indexed songId, bytes32 indexed strategyId);
     event PaymentProcessed(
         bytes32 indexed songId,
         address indexed listener,
         uint256 amount,
-        IEconomicStrategy.PaymentType paymentType
+        PaymentType paymentType
     );
     event ProtocolFeeUpdated(uint256 newFeeBps);
     event ProtocolTreasuryUpdated(address newTreasury);
 
-    /**
-     * @notice Constructor
-     * @param _flowToken Address of the FLOW token contract
-     * @param _protocolTreasury Address to receive protocol fees
-     */
+    // ============================================================
+    // Constructor
+    // ============================================================
+
     constructor(address _flowToken, address _protocolTreasury) {
         require(_flowToken != address(0), "Invalid FLOW token address");
         require(_protocolTreasury != address(0), "Invalid treasury address");
@@ -97,11 +87,10 @@ contract EconomicStrategyRouter is Ownable, ReentrancyGuard {
         protocolTreasury = _protocolTreasury;
     }
 
-    /**
-     * @notice Register a new economic strategy
-     * @param strategyId Unique identifier for the strategy
-     * @param strategyAddress Address of the strategy contract
-     */
+    // ============================================================
+    // Strategy Registry
+    // ============================================================
+
     function registerStrategy(bytes32 strategyId, address strategyAddress) external onlyOwner {
         require(strategyAddress != address(0), "Invalid strategy address");
         require(registeredStrategies[strategyId] == address(0), "Strategy already registered");
@@ -110,118 +99,178 @@ contract EconomicStrategyRouter is Ownable, ReentrancyGuard {
         emit StrategyRegistered(strategyId, strategyAddress);
     }
 
+    // ============================================================
+    // Artist Actions
+    // ============================================================
+
     /**
      * @notice Register a song with a specific economic strategy
-     * @param songId Unique identifier for the song
-     * @param strategyId The economic strategy to use
-     * @param artist Address of the artist
+     * @dev Caller becomes the artist of record for this song
      */
-    function registerSong(
-        bytes32 songId,
-        bytes32 strategyId,
-        address artist
-    ) external {
-        require(songStrategy[songId] == bytes32(0), "Song already registered");
-        require(registeredStrategies[strategyId] != address(0), "Strategy not registered");
-        require(artist != address(0), "Invalid artist address");
+    function registerSong(bytes32 songId, bytes32 strategyId) external {
+        require(songStrategy[songId] == address(0), "Song already registered");
 
-        songStrategy[songId] = strategyId;
-        songArtist[songId] = artist;
+        address strategyAddress = registeredStrategies[strategyId];
+        require(strategyAddress != address(0), "Strategy not registered");
 
-        emit SongRegistered(songId, strategyId, artist);
+        songArtist[songId] = msg.sender;
+        songStrategy[songId] = strategyAddress;
+        songStrategyId[songId] = strategyId;
+
+        emit SongRegistered(songId, strategyId, msg.sender);
     }
 
     /**
-     * @notice Process a payment for a song
-     * @param songId Unique identifier for the song
-     * @param amount Amount of FLOW tokens to pay
-     * @param paymentType Type of payment (stream, tip, subscription, etc.)
+     * @notice Change the economic strategy for an existing song
      */
+    function changeSongStrategy(bytes32 songId, bytes32 strategyId) external {
+        require(songArtist[songId] == msg.sender, "Not song artist");
+
+        address strategyAddress = registeredStrategies[strategyId];
+        require(strategyAddress != address(0), "Strategy not registered");
+
+        songStrategy[songId] = strategyAddress;
+        songStrategyId[songId] = strategyId;
+
+        emit SongStrategyChanged(songId, strategyId);
+    }
+
+    // ============================================================
+    // Listener Payments
+    // ============================================================
+
     function processPayment(
         bytes32 songId,
         uint256 amount,
-        IEconomicStrategy.PaymentType paymentType
+        PaymentType paymentType
     ) external nonReentrant {
-        bytes32 strategyId = songStrategy[songId];
-        require(strategyId != bytes32(0), "Song not registered");
+        _processPayment(songId, amount, paymentType);
+    }
 
-        address strategyAddress = registeredStrategies[strategyId];
-        require(strategyAddress != address(0), "Strategy not found");
+    function batchProcessPayments(
+        bytes32[] calldata songIds,
+        uint256[] calldata amounts,
+        PaymentType[] calldata paymentTypes
+    ) external nonReentrant {
+        require(
+            songIds.length == amounts.length && songIds.length == paymentTypes.length,
+            "Length mismatch"
+        );
+
+        for (uint256 i = 0; i < songIds.length; i++) {
+            _processPayment(songIds[i], amounts[i], paymentTypes[i]);
+        }
+    }
+
+    function _processPayment(
+        bytes32 songId,
+        uint256 amount,
+        PaymentType paymentType
+    ) internal {
+        address strategyAddress = songStrategy[songId];
+        require(strategyAddress != address(0), "Song not registered");
+        require(amount > 0, "Amount must be positive");
 
         IEconomicStrategy strategy = IEconomicStrategy(strategyAddress);
 
-        // Check minimum payment
         uint256 minPayment = strategy.getMinPayment(songId, paymentType);
         require(amount >= minPayment, "Payment below minimum");
 
-        // Transfer FLOW tokens from listener to this contract
         require(
             flowToken.transferFrom(msg.sender, address(this), amount),
             "FLOW transfer failed"
         );
 
-        // Calculate protocol fee
         uint256 protocolFee = (amount * protocolFeeBps) / 10000;
         uint256 netAmount = amount - protocolFee;
 
-        // Transfer protocol fee to treasury
         if (protocolFee > 0) {
-            require(flowToken.transfer(protocolTreasury, protocolFee), "Protocol fee transfer failed");
+            require(
+                flowToken.transfer(protocolTreasury, protocolFee),
+                "Protocol fee transfer failed"
+            );
         }
 
-        // Approve strategy to spend the net amount
         require(flowToken.approve(strategyAddress, netAmount), "Approval failed");
-
-        // Delegate to strategy contract
         strategy.processPayment(songId, msg.sender, netAmount, paymentType);
+
+        paymentHistory[songId].push(
+            Payment({
+                songId: songId,
+                listener: msg.sender,
+                amount: amount,
+                paymentType: paymentType,
+                timestamp: block.timestamp
+            })
+        );
 
         emit PaymentProcessed(songId, msg.sender, amount, paymentType);
     }
 
-    /**
-     * @notice Check if a listener is authorized to access a song
-     * @param songId Unique identifier for the song
-     * @param listener Address of the listener
-     * @return True if authorized
-     */
-    function isAuthorized(bytes32 songId, address listener) external view returns (bool) {
-        bytes32 strategyId = songStrategy[songId];
-        if (strategyId == bytes32(0)) return false;
+    // ============================================================
+    // View Helpers
+    // ============================================================
 
-        address strategyAddress = registeredStrategies[strategyId];
-        if (strategyAddress == address(0)) return false;
-
-        IEconomicStrategy strategy = IEconomicStrategy(strategyAddress);
-        return strategy.isAuthorized(songId, listener);
+    function getPaymentHistory(bytes32 songId) external view returns (Payment[] memory) {
+        return paymentHistory[songId];
     }
 
-    /**
-     * @notice Update protocol fee (only owner)
-     * @param newFeeBps New fee in basis points
-     */
+    function previewSplits(bytes32 songId, uint256 amount) external view returns (Split[] memory) {
+        address strategyAddress = songStrategy[songId];
+        require(strategyAddress != address(0), "Song not registered");
+
+        return IEconomicStrategy(strategyAddress).calculateSplits(songId, amount);
+    }
+
+    function isAuthorized(bytes32 songId, address listener) external view returns (bool) {
+        address strategyAddress = songStrategy[songId];
+        if (strategyAddress == address(0)) return false;
+
+        return IEconomicStrategy(strategyAddress).isAuthorized(songId, listener);
+    }
+
+    function getStrategyForSong(bytes32 songId) external view returns (address) {
+        return songStrategy[songId];
+    }
+
+    // ============================================================
+    // Protocol Admin
+    // ============================================================
+
     function updateProtocolFee(uint256 newFeeBps) external onlyOwner {
         require(newFeeBps <= 500, "Fee too high (max 5%)");
         protocolFeeBps = newFeeBps;
         emit ProtocolFeeUpdated(newFeeBps);
     }
 
-    /**
-     * @notice Update protocol treasury address (only owner)
-     * @param newTreasury New treasury address
-     */
     function updateProtocolTreasury(address newTreasury) external onlyOwner {
         require(newTreasury != address(0), "Invalid treasury address");
         protocolTreasury = newTreasury;
         emit ProtocolTreasuryUpdated(newTreasury);
     }
+}
 
-    /**
-     * @notice Get strategy address for a song
-     * @param songId Unique identifier for the song
-     * @return Address of the strategy contract
-     */
-    function getStrategyForSong(bytes32 songId) external view returns (address) {
-        bytes32 strategyId = songStrategy[songId];
-        return registeredStrategies[strategyId];
-    }
+/**
+ * @title IEconomicStrategy
+ * @notice Interface implemented by every economic strategy
+ */
+interface IEconomicStrategy {
+    function processPayment(
+        bytes32 songId,
+        address listener,
+        uint256 amount,
+        EconomicStrategyRouter.PaymentType paymentType
+    ) external;
+
+    function getMinPayment(
+        bytes32 songId,
+        EconomicStrategyRouter.PaymentType paymentType
+    ) external view returns (uint256);
+
+    function isAuthorized(bytes32 songId, address listener) external view returns (bool);
+
+    function calculateSplits(
+        bytes32 songId,
+        uint256 amount
+    ) external view returns (EconomicStrategyRouter.Split[] memory);
 }

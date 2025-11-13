@@ -75,3 +75,4 @@ contracts/typechain-types/
 # Local development
 .env.local
 docker-compose.override.yml
+.vercel

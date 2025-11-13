@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from 'react';
-import { EconomicStrategySDK, PaymentModel, PRESET_STRATEGIES, EconomicConfig, Split } from '@mycelix/sdk';
+import { EconomicStrategySDK, PaymentModel, PRESET_STRATEGIES, EconomicConfig, Split } from '@/lib';
 import { useWallet } from '@/hooks/useWallet';
 
 // ========== TYPES ==========
