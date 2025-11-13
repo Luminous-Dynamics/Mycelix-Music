@@ -11,6 +11,7 @@ export interface Song {
   plays: number;
   earnings: string;
   coverArt: string;  // Cover art image URL
+  audioUrl?: string;  // Audio file URL (demo or CDN)
   freePlaysRemaining?: number;  // For freemium model
   tipAmount?: string;  // For pay-what-you-want
 }
@@ -39,6 +40,7 @@ export const mockSongs: Song[] = [
     plays: 12847,
     earnings: '89.23',
     coverArt: 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=600&h=600&fit=crop',
+    audioUrl: '/demo-music/digital-dreams.mp3',
     freePlaysRemaining: 3,
   },
   {
@@ -52,6 +54,7 @@ export const mockSongs: Song[] = [
     plays: 8234,
     earnings: '2,047.50',
     coverArt: 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=600&h=600&fit=crop',
+    audioUrl: '/demo-music/neon-waves.mp3',
     tipAmount: 'avg $0.25',
   },
 
@@ -67,6 +70,7 @@ export const mockSongs: Song[] = [
     plays: 15692,
     earnings: '156.92',
     coverArt: 'https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=600&h=600&fit=crop',
+    audioUrl: '/demo-music/thunder-road.mp3',
   },
   {
     id: '4',
@@ -79,6 +83,7 @@ export const mockSongs: Song[] = [
     plays: 9876,
     earnings: '98.76',
     coverArt: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&h=600&fit=crop',
+    audioUrl: '/demo-music/midnight-drive.mp3',
   },
 
   // Ambient - Pay What You Want (tip-based, true gift economy)
@@ -93,6 +98,7 @@ export const mockSongs: Song[] = [
     plays: 23451,
     earnings: '3,517.65',
     coverArt: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&h=600&fit=crop',
+    audioUrl: '/demo-music/morning-mist.mp3',
     tipAmount: 'avg $0.15',
   },
   {
@@ -106,6 +112,7 @@ export const mockSongs: Song[] = [
     plays: 18723,
     earnings: '154.89',
     coverArt: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=600&h=600&fit=crop',
+    audioUrl: '/demo-music/ocean-depths.mp3',
     freePlaysRemaining: 3,
   },
 

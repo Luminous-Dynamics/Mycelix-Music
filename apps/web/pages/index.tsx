@@ -1,39 +1,71 @@
 import { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { motion } from 'framer-motion';
-import { Music, Sparkles, TrendingUp, Users } from 'lucide-react';
+import { Music, Sparkles, TrendingUp, Users, Play, Heart, DollarSign, Shield, Zap, Globe } from 'lucide-react';
 import Link from 'next/link';
-import EarningsCalculator from '../components/EarningsCalculator';
 import Navigation from '../components/Navigation';
 
 export default function HomePage() {
   const { login, authenticated, user } = usePrivy();
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
 
-  const features = [
-    {
-      icon: Music,
-      title: 'Artists: 10x-50x More Earnings',
-      description: 'Earn $100-$1,500 from 10K plays vs Spotify\'s $30. Choose pay-per-stream, freemium, tips, or patronage.',
-      color: 'from-purple-500 to-pink-500',
-    },
+  const listenerFeatures = [
     {
       icon: Sparkles,
-      title: 'Listeners: Try 3 Free Plays',
-      description: 'Discover new music risk-free with freemium. Then tip what you want or pay per stream.',
+      title: 'Try Before You Buy',
+      description: 'Free plays on most tracks. No subscription required. Pay only for what you love.',
       color: 'from-blue-500 to-cyan-500',
     },
     {
+      icon: Heart,
+      title: 'Support Artists Directly',
+      description: 'Your payment goes straight to the artist. No middlemen taking 70% cuts.',
+      color: 'from-pink-500 to-rose-500',
+    },
+    {
+      icon: Zap,
+      title: 'Instant Access',
+      description: 'Stream immediately. No ads, no waiting, no algorithmic manipulation.',
+      color: 'from-purple-500 to-indigo-500',
+    },
+  ];
+
+  const artistFeatures = [
+    {
       icon: TrendingUp,
-      title: 'Everyone: Support Artists Directly',
-      description: 'Your payments go straight to artists. No middlemen, no 90-day delays, no exploitation.',
+      title: '10x-50x More Earnings',
+      description: 'Earn $100-$1,500 from 10K plays vs Spotify\'s $30. You set your price.',
       color: 'from-green-500 to-emerald-500',
     },
     {
-      icon: Users,
-      title: 'Community: You Own This',
-      description: 'DAO-governed platform. Zero platform fees for first 100 artists. Built for the people, by the people.',
-      color: 'from-orange-500 to-red-500',
+      icon: DollarSign,
+      title: 'Instant Payments',
+      description: 'Get paid immediately for every stream. No 90-day delays, no minimum thresholds.',
+      color: 'from-yellow-500 to-orange-500',
+    },
+    {
+      icon: Shield,
+      title: '100% Ownership',
+      description: 'You keep all rights to your music. No exploitative contracts, no giving up control.',
+      color: 'from-purple-500 to-pink-500',
+    },
+  ];
+
+  const howItWorksSteps = [
+    {
+      number: '1',
+      title: 'Choose Your Model',
+      description: 'Artists pick from 4 economic models: Pay-per-stream ($0.01), Freemium (3 free plays), Tips (pay what you want), or Patronage (monthly subscription).',
+    },
+    {
+      number: '2',
+      title: 'Upload & Share',
+      description: 'Upload your music to IPFS (decentralized storage) and set your price. Share your link with fans worldwide.',
+    },
+    {
+      number: '3',
+      title: 'Earn Instantly',
+      description: 'Every stream or tip goes directly to your wallet. No delays, no minimums, no platform taking 30-70% cuts.',
     },
   ];
 
@@ -76,53 +108,154 @@ export default function HomePage() {
           </div>
         </motion.div>
 
-        {/* Earnings Calculator - Make it irresistible for artists! */}
+        {/* For Listeners Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.3 }}
-          className="mt-20"
+          className="mt-32"
         >
-          <EarningsCalculator />
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold text-white mb-4">For Listeners 🎧</h2>
+            <p className="text-xl text-gray-300 max-w-2xl mx-auto">
+              Discover amazing music and support artists directly—no subscriptions, no ads
+            </p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {listenerFeatures.map((feature, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.4 + index * 0.1 }}
+                className="relative group"
+              >
+                <div
+                  className={`absolute inset-0 bg-gradient-to-br ${feature.color} rounded-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300`}
+                />
+                <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-8 h-full hover:border-white/20 transition">
+                  <feature.icon className="w-16 h-16 text-blue-400 mb-6" />
+                  <h3 className="text-2xl font-semibold text-white mb-3">{feature.title}</h3>
+                  <p className="text-gray-300 text-lg">{feature.description}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </motion.div>
 
-        {/* Feature Cards */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mt-20">
-          {features.map((feature, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              onHoverStart={() => setHoveredCard(index)}
-              onHoverEnd={() => setHoveredCard(null)}
-              className="relative group"
+        {/* For Artists Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.5 }}
+          className="mt-32"
+        >
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold text-white mb-4">For Artists 🎵</h2>
+            <p className="text-xl text-gray-300 max-w-2xl mx-auto">
+              Keep what you earn. Own your music. Build direct relationships with fans.
+            </p>
+            <Link
+              href="/artist"
+              className="inline-block mt-6 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-lg font-medium transition"
             >
-              <div
-                className={`absolute inset-0 bg-gradient-to-br ${feature.color} rounded-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300`}
-              />
-              <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6 h-full hover:border-white/20 transition">
-                <feature.icon className="w-12 h-12 text-purple-400 mb-4" />
-                <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>
-                <p className="text-gray-400">{feature.description}</p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+              See Artist Earnings Calculator →
+            </Link>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {artistFeatures.map((feature, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.6 + index * 0.1 }}
+                className="relative group"
+              >
+                <div
+                  className={`absolute inset-0 bg-gradient-to-br ${feature.color} rounded-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300`}
+                />
+                <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-8 h-full hover:border-white/20 transition">
+                  <feature.icon className="w-16 h-16 text-green-400 mb-6" />
+                  <h3 className="text-2xl font-semibold text-white mb-3">{feature.title}</h3>
+                  <p className="text-gray-300 text-lg">{feature.description}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* How It Works Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.7 }}
+          className="mt-32"
+        >
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-white mb-4">How It Works ⚡</h2>
+            <p className="text-xl text-gray-300 max-w-2xl mx-auto">
+              Three simple steps to revolutionize music streaming
+            </p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8">
+            {howItWorksSteps.map((step, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.8 + index * 0.1 }}
+                className="text-center"
+              >
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white text-3xl font-bold mb-6">
+                  {step.number}
+                </div>
+                <h3 className="text-2xl font-semibold text-white mb-4">{step.title}</h3>
+                <p className="text-gray-300 text-lg leading-relaxed">{step.description}</p>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* CTA Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.9 }}
+          className="mt-32 text-center bg-gradient-to-br from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-2xl p-12"
+        >
+          <h2 className="text-4xl font-bold text-white mb-4">Ready to Join the Revolution?</h2>
+          <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+            Whether you're an artist or a music lover, Mycelix Music gives you the power
+          </p>
+          <div className="flex flex-col sm:flex-row justify-center gap-4">
+            <Link
+              href="/discover"
+              className="px-10 py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-lg font-medium transition"
+            >
+              Start Listening
+            </Link>
+            <Link
+              href="/upload"
+              className="px-10 py-4 bg-green-600 hover:bg-green-700 text-white rounded-lg text-lg font-medium transition"
+            >
+              Upload Your Music
+            </Link>
+          </div>
+        </motion.div>
 
         {/* Stats */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.5 }}
+          transition={{ duration: 0.8, delay: 1.0 }}
           className="mt-20 grid md:grid-cols-3 gap-8 text-center"
         >
           <div>
-            <div className="text-4xl font-bold text-white mb-2">3+</div>
+            <div className="text-4xl font-bold text-white mb-2">4</div>
             <div className="text-gray-400">Economic Models</div>
           </div>
           <div>
-            <div className="text-4xl font-bold text-white mb-2">10x</div>
+            <div className="text-4xl font-bold text-white mb-2">10-50x</div>
             <div className="text-gray-400">Better Artist Earnings</div>
           </div>
           <div>
