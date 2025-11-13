@@ -220,17 +220,26 @@ app.get('/api/artists/:address/stats', async (req, res) => {
     const { address } = req.params;
 
     const songsResult = await pool.query(
-      'SELECT COUNT(*), SUM(plays), SUM(earnings) FROM songs WHERE artist_address = $1',
+      `SELECT
+         COUNT(*) AS total_songs,
+         COALESCE(SUM(plays), 0) AS total_plays,
+         COALESCE(SUM(earnings), 0) AS total_earnings
+       FROM songs
+       WHERE artist_address = $1`,
       [address]
     );
 
-    const stats = songsResult.rows[0];
+    const stats = songsResult.rows[0] || {
+      total_songs: 0,
+      total_plays: 0,
+      total_earnings: 0,
+    };
 
     res.json({
       artistAddress: address,
-      totalSongs: parseInt(stats.count) || 0,
-      totalPlays: parseInt(stats.sum) || 0,
-      totalEarnings: parseFloat(stats.sum) || 0,
+      totalSongs: Number(stats.total_songs) || 0,
+      totalPlays: Number(stats.total_plays) || 0,
+      totalEarnings: Number(stats.total_earnings) || 0,
     });
   } catch (error) {
     console.error('Failed to fetch artist stats:', error);

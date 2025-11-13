@@ -1,14 +1,9 @@
-import { useState } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
 import { motion } from 'framer-motion';
-import { Music, Sparkles, TrendingUp, Users, Play, Heart, DollarSign, Shield, Zap, Globe } from 'lucide-react';
+import { Sparkles, TrendingUp, Heart, DollarSign, Shield, Zap } from 'lucide-react';
 import Link from 'next/link';
 import Navigation from '../components/Navigation';
 
 export default function HomePage() {
-  const { login, authenticated, user } = usePrivy();
-  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
-
   const listenerFeatures = [
     {
       icon: Sparkles,
@@ -34,7 +29,7 @@ export default function HomePage() {
     {
       icon: TrendingUp,
       title: '10x-50x More Earnings',
-      description: 'Earn $100-$1,500 from 10K plays vs Spotify\'s $30. You set your price.',
+      description: 'Earn $100-$1,500 from 10K plays vs Spotify&rsquo;s $30. You set your price.',
       color: 'from-green-500 to-emerald-500',
     },
     {
@@ -225,7 +220,7 @@ export default function HomePage() {
         >
           <h2 className="text-4xl font-bold text-white mb-4">Ready to Join the Revolution?</h2>
           <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            Whether you're an artist or a music lover, Mycelix Music gives you the power
+            Whether you&rsquo;re an artist or a music lover, Mycelix Music gives you the power
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
             <Link

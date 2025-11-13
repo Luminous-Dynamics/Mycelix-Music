@@ -43,6 +43,14 @@ export interface EconomicConfig {
   distributionSplits: Split[];
   minimumPayment?: number;
   acceptsGifts?: boolean;
+  giftRewards?: GiftRewardConfig;
+}
+
+export interface GiftRewardConfig {
+  cgcPerListen?: number;
+  earlyListenerBonus?: number;
+  earlyListenerThreshold?: number;
+  repeatListenerMultiplier?: number;
 }
 
 export interface PaymentReceipt {
@@ -127,7 +135,7 @@ export class EconomicStrategySDK {
       const basisPoints = config.distributionSplits.map(s => s.basisPoints);
       const roles = config.distributionSplits.map(s => s.role);
 
-      const tx = await strategy.setRoyaltySplit(
+      const tx = await strategy.configureRoyaltySplit(
         songHash,
         recipients,
         basisPoints,
@@ -147,13 +155,26 @@ export class EconomicStrategySDK {
 
       const recipients = config.distributionSplits.map(s => s.recipient);
       const splits = config.distributionSplits.map(s => s.basisPoints);
+      const roles = config.distributionSplits.map(s => s.role);
 
-      const tx = await strategy.configureGifts(
+      const rewardOverrides = config.giftRewards || {};
+      const cgcPerListen = ethers.parseEther((rewardOverrides.cgcPerListen ?? 1).toString());
+      const earlyBonus = ethers.parseEther((rewardOverrides.earlyListenerBonus ?? 10).toString());
+      const earlyThreshold = BigInt(rewardOverrides.earlyListenerThreshold ?? 100);
+      const repeatMultiplier = BigInt(rewardOverrides.repeatListenerMultiplier ?? 15000);
+      const minGiftAmount = ethers.parseEther((config.minimumPayment ?? 0).toString());
+
+      const tx = await strategy.configureGiftEconomy(
         songHash,
-        config.acceptsGifts ?? true,
-        config.minimumPayment ?? 0,
         recipients,
-        splits
+        splits,
+        roles,
+        config.acceptsGifts ?? true,
+        minGiftAmount,
+        cgcPerListen,
+        earlyBonus,
+        earlyThreshold,
+        repeatMultiplier
       );
 
       await tx.wait();
@@ -300,28 +321,6 @@ export class EconomicStrategySDK {
     return await tx.wait();
   }
 
-  /**
-   * Claim CGC rewards (gift economy)
-   */
-  async claimCGCRewards(
-    artistAddress: string
-  ): Promise<ethers.TransactionReceipt> {
-    if (!this.signer) throw new Error('Signer required');
-
-    // Get the strategy address for the artist
-    // This would need to track which strategy the artist is using
-    // For now, assume gift economy strategy
-    // TODO: Get actual strategy address from router contract
-    const strategy = new ethers.Contract(
-      ethers.ZeroAddress, // Placeholder until contracts are deployed
-      GIFT_ECONOMY_ABI,
-      this.signer
-    );
-
-    const tx = await strategy.claimCGCRewards(artistAddress);
-    return await tx.wait();
-  }
-
   // ========== VIEW FUNCTIONS ==========
 
   /**
@@ -428,6 +427,12 @@ export const PRESET_STRATEGIES = {
     ],
     acceptsGifts: true,
     minimumPayment: 0,
+    giftRewards: {
+      cgcPerListen: 1,
+      earlyListenerBonus: 10,
+      earlyListenerThreshold: 100,
+      repeatListenerMultiplier: 15000,
+    },
   },
 
   collaborativeSplit: {
@@ -453,19 +458,19 @@ const ROUTER_ABI = [
   'function previewSplits(bytes32 songId, uint256 amount) external view returns (tuple(address recipient, uint256 basisPoints, string role)[])',
   'function getPaymentHistory(bytes32 songId) external view returns (tuple(bytes32 songId, address listener, uint256 amount, uint8 paymentType, uint256 timestamp)[])',
   'function songStrategy(bytes32) external view returns (address)',
+  'function songStrategyId(bytes32) external view returns (bytes32)',
   'function flowToken() external view returns (address)',
 ];
 
 const PAY_PER_STREAM_ABI = [
-  'function setRoyaltySplit(bytes32 songId, address[] calldata recipients, uint256[] calldata basisPoints, string[] calldata roles) external',
+  'function configureRoyaltySplit(bytes32 songId, address[] recipients, uint256[] basisPoints, string[] roles) external',
   'function getRoyaltySplit(bytes32 songId) external view returns (address[] memory recipients, uint256[] memory basisPoints, string[] memory roles)',
 ];
 
 const GIFT_ECONOMY_ABI = [
-  'function configureGifts(bytes32 songId, bool acceptsGifts, uint256 minGiftAmount, address[] calldata recipients, uint256[] calldata splits) external',
-  'function claimCGCRewards(address artist) external',
-  'function getCGCBalance(address artist, address listener) external view returns (uint256)',
-  'function getListenerStats(address artist, address listener) external view returns (uint256 totalGifts, uint256 totalStreams, uint256 cgcBalance)',
+  'function configureGiftEconomy(bytes32 songId, address[] recipients, uint256[] basisPoints, string[] roles, bool acceptsGifts, uint256 minGiftAmount, uint256 cgcPerListen, uint256 earlyListenerBonus, uint256 earlyListenerThreshold, uint256 repeatListenerMultiplier) external',
+  'function getListenerProfile(bytes32 songId, address listener) external view returns (uint256 totalStreamsCount, uint256 lastStreamTimestamp, uint256 cgcBalance, uint256 totalGiftsGiven, bool isEarlyListener)',
+  'function getSongStats(bytes32 songId) external view returns ((address artist, bool acceptsGifts, uint256 minGiftAmount, address[] recipients, uint256[] basisPoints, string[] roles, bool initialized), (uint256 cgcPerListen, uint256 earlyListenerBonus, uint256 earlyListenerThreshold, uint256 repeatListenerMultiplier), uint256 listeners, uint256 totalTips)',
 ];
 
 const ERC20_ABI = [

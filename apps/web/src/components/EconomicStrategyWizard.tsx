@@ -5,8 +5,7 @@
  */
 
 import React, { useState } from 'react';
-import { EconomicStrategySDK, PaymentModel, PRESET_STRATEGIES, EconomicConfig, Split } from '@/lib';
-import { useWallet } from '@/hooks/useWallet';
+import { PaymentModel, PRESET_STRATEGIES, EconomicConfig, Split } from '@/lib';
 
 // ========== TYPES ==========
 
@@ -27,13 +26,13 @@ interface PresetCard {
 
 // ========== MAIN COMPONENT ==========
 
-export function EconomicStrategyWizard({ songId, onComplete }: {
+export function EconomicStrategyWizard({ songId, onComplete, isLoading }: {
   songId: string;
-  onComplete: () => void;
+  onComplete: (config: EconomicConfig) => void;
+  isLoading?: boolean;
 }) {
   const [currentStep, setCurrentStep] = useState(0);
   const [config, setConfig] = useState<Partial<EconomicConfig>>({});
-  const { signer } = useWallet();
 
   const steps: WizardStep[] = [
     {
@@ -65,25 +64,13 @@ export function EconomicStrategyWizard({ songId, onComplete }: {
 
   const CurrentStepComponent = steps[currentStep].component;
 
-  async function handleComplete() {
-    if (!signer) {
-      alert('Please connect wallet');
+  function handleComplete() {
+    if (!config.strategyId || !config.paymentModel || !config.distributionSplits?.length) {
+      alert('Please complete all steps before deploying.');
       return;
     }
 
-    const sdk = new EconomicStrategySDK(
-      signer.provider!,
-      process.env.NEXT_PUBLIC_ROUTER_ADDRESS!,
-      signer
-    );
-
-    try {
-      await sdk.registerSong(songId, config as EconomicConfig);
-      onComplete();
-    } catch (error) {
-      console.error('Failed to register song:', error);
-      alert('Failed to deploy economic strategy. See console for details.');
-    }
+    onComplete(config as EconomicConfig);
   }
 
   return (
@@ -119,7 +106,7 @@ export function EconomicStrategyWizard({ songId, onComplete }: {
         <h2 className="text-2xl font-bold mb-2">{steps[currentStep].title}</h2>
         <p className="text-gray-600 mb-6">{steps[currentStep].description}</p>
 
-        <CurrentStepComponent config={config} setConfig={setConfig} />
+        <CurrentStepComponent config={config} setConfig={setConfig} songId={songId} />
       </div>
 
       {/* Navigation */}
@@ -142,9 +129,10 @@ export function EconomicStrategyWizard({ songId, onComplete }: {
         ) : (
           <button
             onClick={handleComplete}
-            className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+            disabled={isLoading}
+            className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
           >
-            Deploy Strategy
+            {isLoading ? 'Deploying...' : 'Deploy Strategy'}
           </button>
         )}
       </div>
@@ -458,9 +446,10 @@ function RevenueSplitConfig({ config, setConfig }: {
 
 // ========== STEP 4: INCENTIVES CONFIG ==========
 
-function IncentivesConfig({ config, setConfig }: {
+function IncentivesConfig(_: {
   config: Partial<EconomicConfig>;
   setConfig: (config: Partial<EconomicConfig>) => void;
+  songId?: string;
 }) {
   return (
     <div className="space-y-6">
@@ -537,7 +526,7 @@ function IncentivesConfig({ config, setConfig }: {
 
 // ========== STEP 5: REVIEW AND DEPLOY ==========
 
-function ReviewAndDeploy({ config }: { config: Partial<EconomicConfig> }) {
+function ReviewAndDeploy({ config, songId }: { config: Partial<EconomicConfig>; songId: string }) {
   return (
     <div className="space-y-6">
       <div className="bg-gray-50 rounded-lg p-6 space-y-4">
@@ -561,6 +550,11 @@ function ReviewAndDeploy({ config }: { config: Partial<EconomicConfig> }) {
         <div>
           <h4 className="font-medium text-gray-700 mb-1">Strategy ID</h4>
           <code className="text-sm bg-white px-2 py-1 rounded">{config.strategyId}</code>
+        </div>
+
+        <div>
+          <h4 className="font-medium text-gray-700 mb-1">Song ID</h4>
+          <code className="text-sm bg-white px-2 py-1 rounded">{songId}</code>
         </div>
       </div>
 

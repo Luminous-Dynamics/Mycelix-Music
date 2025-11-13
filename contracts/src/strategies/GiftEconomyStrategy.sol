@@ -7,8 +7,7 @@ import "../EconomicStrategyRouter.sol";
 
 /**
  * @title GiftEconomyStrategy
- * @notice Revolutionary model: Free listening + listeners earn CGC tokens + voluntary tips
- * @dev Artists receive voluntary tips, listeners earn CGC for engagement
+ * @notice Free streaming model with optional tipping + CGC rewards for engaged listeners
  */
 contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
     IERC20 public immutable flowToken;
@@ -21,26 +20,33 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
 
     ICGCRegistry public cgcRegistry;
 
-    // Configuration per song
     struct GiftConfig {
         address artist;
-        uint256 cgcPerListen; // CGC awarded to listener per stream
-        uint256 earlyListenerBonus; // Extra CGC for first N listeners
-        uint256 earlyListenerThreshold; // Number of early listeners
-        uint256 repeatListenerMultiplier; // Multiplier for loyal fans (in basis points)
+        bool acceptsGifts;
+        uint256 minGiftAmount;
+        address[] recipients;
+        uint256[] basisPoints;
+        string[] roles;
         bool initialized;
     }
 
-    mapping(bytes32 => GiftConfig) public giftConfigs;
+    struct RewardConfig {
+        uint256 cgcPerListen;
+        uint256 earlyListenerBonus;
+        uint256 earlyListenerThreshold;
+        uint256 repeatListenerMultiplier; // 10000 = 1x
+    }
 
-    // Listener tracking
     struct ListenerProfile {
         uint256 totalStreamsCount;
         uint256 lastStreamTimestamp;
         uint256 cgcBalance;
+        uint256 totalGiftsGiven;
         bool isEarlyListener;
     }
 
+    mapping(bytes32 => GiftConfig) public giftConfigs;
+    mapping(bytes32 => RewardConfig) public rewardConfigs;
     mapping(bytes32 => mapping(address => ListenerProfile)) public listenerProfiles;
     mapping(bytes32 => uint256) public listenerCount;
     mapping(bytes32 => uint256) public totalTipsReceived;
@@ -48,10 +54,11 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
     // Events
     event GiftConfigured(
         bytes32 indexed songId,
-        address artist,
-        uint256 cgcPerListen,
-        uint256 earlyListenerBonus
+        address indexed artist,
+        bool acceptsGifts,
+        uint256 minGiftAmount
     );
+    event TipReceived(bytes32 indexed songId, address indexed listener, uint256 amount);
     event StreamReward(
         bytes32 indexed songId,
         address indexed listener,
@@ -59,11 +66,18 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
         bool isEarlyListener,
         bool isRepeatListener
     );
-    event TipReceived(bytes32 indexed songId, address indexed listener, uint256 amount);
     event CGCDistributed(address indexed listener, uint256 amount);
 
     modifier onlyRouter() {
         require(msg.sender == router, "Only router can call");
+        _;
+    }
+
+    modifier onlySongArtist(bytes32 songId) {
+        require(
+            EconomicStrategyRouter(router).songArtist(songId) == msg.sender,
+            "Not song artist"
+        );
         _;
     }
 
@@ -78,103 +92,205 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
     }
 
     /**
-     * @notice Configure gift economy parameters for a song
-     * @param songId Unique identifier for the song
-     * @param artist Address of the artist
-     * @param cgcPerListen CGC awarded per stream
-     * @param earlyListenerBonus Extra CGC for early listeners
-     * @param earlyListenerThreshold Number of early listeners
-     * @param repeatListenerMultiplier Multiplier for repeat listeners (10000 = 1x)
+     * @notice Configure gift + reward parameters for a song
      */
     function configureGiftEconomy(
         bytes32 songId,
-        address artist,
+        address[] calldata recipients,
+        uint256[] calldata basisPoints,
+        string[] calldata roles,
+        bool acceptsGifts,
+        uint256 minGiftAmount,
         uint256 cgcPerListen,
         uint256 earlyListenerBonus,
         uint256 earlyListenerThreshold,
         uint256 repeatListenerMultiplier
-    ) external {
+    ) external onlySongArtist(songId) {
         require(!giftConfigs[songId].initialized, "Already configured");
-        require(artist != address(0), "Invalid artist");
+        require(recipients.length > 0, "No recipients");
+        require(
+            recipients.length == basisPoints.length && recipients.length == roles.length,
+            "Length mismatch"
+        );
         require(cgcPerListen > 0, "CGC per listen must be > 0");
+        require(repeatListenerMultiplier >= 10000, "Invalid multiplier");
 
-        giftConfigs[songId] = GiftConfig({
-            artist: artist,
+        uint256 totalBps = 0;
+        for (uint256 i = 0; i < basisPoints.length; i++) {
+            require(recipients[i] != address(0), "Invalid recipient");
+            totalBps += basisPoints[i];
+        }
+        require(totalBps == 10000, "Splits must sum to 100%");
+
+        GiftConfig storage config = giftConfigs[songId];
+        config.artist = msg.sender;
+        config.acceptsGifts = acceptsGifts;
+        config.minGiftAmount = minGiftAmount;
+        config.initialized = true;
+
+        for (uint256 i = 0; i < recipients.length; i++) {
+            config.recipients.push(recipients[i]);
+            config.basisPoints.push(basisPoints[i]);
+            config.roles.push(roles[i]);
+        }
+
+        rewardConfigs[songId] = RewardConfig({
             cgcPerListen: cgcPerListen,
             earlyListenerBonus: earlyListenerBonus,
             earlyListenerThreshold: earlyListenerThreshold,
-            repeatListenerMultiplier: repeatListenerMultiplier,
-            initialized: true
+            repeatListenerMultiplier: repeatListenerMultiplier
         });
 
-        emit GiftConfigured(songId, artist, cgcPerListen, earlyListenerBonus);
+        emit GiftConfigured(songId, msg.sender, acceptsGifts, minGiftAmount);
     }
 
     /**
-     * @notice Process a payment (either free stream or tip)
-     * @param songId Unique identifier for the song
-     * @param listener Address of the listener
-     * @param amount Amount of FLOW tokens (0 for free stream, >0 for tip)
-     * @param paymentType Type of payment
+     * @notice Process free listens or voluntary tips routed by the EconomicStrategyRouter
      */
     function processPayment(
         bytes32 songId,
         address listener,
         uint256 amount,
-        PaymentType paymentType
+        EconomicStrategyRouter.PaymentType paymentType
     ) external override onlyRouter {
-        GiftConfig memory config = giftConfigs[songId];
+        GiftConfig storage config = giftConfigs[songId];
         require(config.initialized, "Gift economy not configured");
 
-        if (amount == 0 || paymentType == PaymentType.STREAM) {
-            // Free stream - reward listener with CGC
-            _rewardListener(songId, listener, config);
-        } else {
-            // Voluntary tip - transfer to artist
-            require(
-                flowToken.transferFrom(router, config.artist, amount),
-                "Tip transfer failed"
-            );
-
-            totalTipsReceived[songId] += amount;
-            emit TipReceived(songId, listener, amount);
-
-            // Also reward listener for tipping (double reward!)
-            _rewardListener(songId, listener, config);
+        RewardConfig storage rewards = rewardConfigs[songId];
+        if (paymentType == EconomicStrategyRouter.PaymentType.STREAM || amount == 0) {
+            _rewardListener(songId, listener, config, rewards);
+            return;
         }
+
+        if (paymentType == EconomicStrategyRouter.PaymentType.TIP) {
+            require(config.acceptsGifts, "Gifts not accepted");
+            require(amount >= config.minGiftAmount, "Gift too small");
+
+            _distributeGift(songId, amount, config);
+            totalTipsReceived[songId] += amount;
+
+            ListenerProfile storage profile = listenerProfiles[songId][listener];
+            profile.totalGiftsGiven += amount;
+
+            emit TipReceived(songId, listener, amount);
+            _rewardListener(songId, listener, config, rewards);
+            return;
+        }
+
+        revert("Unsupported payment type");
     }
 
     /**
-     * @notice Internal function to reward listener with CGC
-     * @param songId Unique identifier for the song
-     * @param listener Address of the listener
-     * @param config Gift economy configuration
+     * @notice Minimum payment enforcement (tips may require a floor)
      */
+    function getMinPayment(
+        bytes32 songId,
+        EconomicStrategyRouter.PaymentType paymentType
+    ) external view override returns (uint256) {
+        if (paymentType != EconomicStrategyRouter.PaymentType.TIP) {
+            return 0;
+        }
+
+        GiftConfig storage config = giftConfigs[songId];
+        if (!config.initialized) {
+            return 0;
+        }
+
+        return config.minGiftAmount;
+    }
+
+    /**
+     * @notice Everyone can listen in the gift economy
+     */
+    function isAuthorized(bytes32 songId, address listener)
+        external
+        pure
+        override
+        returns (bool)
+    {
+        songId;
+        listener;
+        return true;
+    }
+
+    /**
+     * @notice Preview how gifts are split amongst recipients
+     */
+    function calculateSplits(bytes32 songId, uint256 /* amount */ )
+        external
+        view
+        override
+        returns (EconomicStrategyRouter.Split[] memory)
+    {
+        GiftConfig storage config = giftConfigs[songId];
+        require(config.initialized, "Gift economy not configured");
+
+        EconomicStrategyRouter.Split[] memory splits =
+            new EconomicStrategyRouter.Split[](config.recipients.length);
+
+        for (uint256 i = 0; i < config.recipients.length; i++) {
+            splits[i] = EconomicStrategyRouter.Split({
+                recipient: config.recipients[i],
+                basisPoints: config.basisPoints[i],
+                role: config.roles[i]
+            });
+        }
+
+        return splits;
+    }
+
+    // ============================================================
+    // Listener Insights
+    // ============================================================
+
+    function getListenerProfile(bytes32 songId, address listener)
+        external
+        view
+        returns (ListenerProfile memory)
+    {
+        return listenerProfiles[songId][listener];
+    }
+
+    function getSongStats(bytes32 songId)
+        external
+        view
+        returns (
+            GiftConfig memory config,
+            RewardConfig memory rewards,
+            uint256 listeners,
+            uint256 totalTips
+        )
+    {
+        return (giftConfigs[songId], rewardConfigs[songId], listenerCount[songId], totalTipsReceived[songId]);
+    }
+
+    // ============================================================
+    // Internal Helpers
+    // ============================================================
+
     function _rewardListener(
         bytes32 songId,
         address listener,
-        GiftConfig memory config
+        GiftConfig storage config,
+        RewardConfig storage rewards
     ) internal {
         ListenerProfile storage profile = listenerProfiles[songId][listener];
 
-        uint256 reward = config.cgcPerListen;
+        uint256 reward = rewards.cgcPerListen;
         bool isEarly = false;
         bool isRepeat = false;
 
-        // Early listener bonus
-        if (listenerCount[songId] < config.earlyListenerThreshold && !profile.isEarlyListener) {
-            reward += config.earlyListenerBonus;
+        if (listenerCount[songId] < rewards.earlyListenerThreshold && !profile.isEarlyListener) {
+            reward += rewards.earlyListenerBonus;
             profile.isEarlyListener = true;
             isEarly = true;
         }
 
-        // Repeat listener multiplier
-        if (profile.totalStreamsCount > 5) {
-            reward = (reward * config.repeatListenerMultiplier) / 10000;
+        if (profile.totalStreamsCount > 5 && rewards.repeatListenerMultiplier > 10000) {
+            reward = (reward * rewards.repeatListenerMultiplier) / 10000;
             isRepeat = true;
         }
 
-        // Update profile
         if (profile.totalStreamsCount == 0) {
             listenerCount[songId]++;
         }
@@ -183,7 +299,6 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
         profile.lastStreamTimestamp = block.timestamp;
         profile.cgcBalance += reward;
 
-        // Award CGC through commons-charter registry
         cgcRegistry.awardCGC(
             listener,
             reward,
@@ -194,77 +309,38 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
         emit CGCDistributed(listener, reward);
     }
 
-    /**
-     * @notice Get minimum payment (always 0 for gift economy)
-     * @param songId Unique identifier for the song
-     * @param paymentType Type of payment
-     * @return Always 0 (listening is free)
-     */
-    function getMinPayment(bytes32 songId, PaymentType paymentType)
-        external
-        pure
-        override
-        returns (uint256)
-    {
-        // Unused parameters
-        songId;
-        paymentType;
+    function _distributeGift(bytes32 songId, uint256 amount, GiftConfig storage config) internal {
+        uint256 distributed = 0;
+        for (uint256 i = 0; i < config.recipients.length; i++) {
+            uint256 share = (amount * config.basisPoints[i]) / 10000;
+            distributed += share;
+            if (share > 0) {
+                require(
+                    flowToken.transferFrom(router, config.recipients[i], share),
+                    "Gift transfer failed"
+                );
+            }
+        }
 
-        return 0; // Free!
+        // Handle rounding dust by sending it to the primary artist
+        uint256 remainder = amount - distributed;
+        if (remainder > 0) {
+            require(
+                flowToken.transferFrom(router, config.artist, remainder),
+                "Remainder transfer failed"
+            );
+        }
     }
 
-    /**
-     * @notice Check if listener is authorized (always true in gift economy)
-     * @param songId Unique identifier for the song
-     * @param listener Address of the listener
-     * @return Always true (free for everyone)
-     */
-    function isAuthorized(bytes32 songId, address listener) external pure override returns (bool) {
-        // Unused parameters
-        songId;
-        listener;
+    // ============================================================
+    // Admin utilities
+    // ============================================================
 
-        return true; // Free for all!
+    function updateCGCRegistry(address newRegistry) external onlyOwner {
+        require(newRegistry != address(0), "Invalid registry");
+        cgcRegistry = ICGCRegistry(newRegistry);
     }
 
-    /**
-     * @notice Get listener profile
-     * @param songId Unique identifier for the song
-     * @param listener Address of the listener
-     * @return profile Listener's engagement profile
-     */
-    function getListenerProfile(bytes32 songId, address listener)
-        external
-        view
-        returns (ListenerProfile memory)
-    {
-        return listenerProfiles[songId][listener];
-    }
-
-    /**
-     * @notice Get gift economy stats for a song
-     * @param songId Unique identifier for the song
-     * @return config Gift economy configuration
-     * @return listeners Total number of unique listeners
-     * @return totalTips Total tips received by artist
-     */
-    function getSongStats(bytes32 songId)
-        external
-        view
-        returns (
-            GiftConfig memory config,
-            uint256 listeners,
-            uint256 totalTips
-        )
-    {
-        return (giftConfigs[songId], listenerCount[songId], totalTipsReceived[songId]);
-    }
-
-    /**
-     * @notice Convert bytes32 to string (helper function)
-     * @param _bytes32 Bytes32 to convert
-     * @return String representation
-     */
     function bytes32ToString(bytes32 _bytes32) internal pure returns (string memory) {
         uint8 i = 0;
         while (i < 32 && _bytes32[i] != 0) {
@@ -275,14 +351,5 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
             bytesArray[i] = _bytes32[i];
         }
         return string(bytesArray);
-    }
-
-    /**
-     * @notice Update CGC registry address (owner only)
-     * @param newRegistry New CGC registry address
-     */
-    function updateCGCRegistry(address newRegistry) external onlyOwner {
-        require(newRegistry != address(0), "Invalid registry");
-        cgcRegistry = ICGCRegistry(newRegistry);
     }
 }

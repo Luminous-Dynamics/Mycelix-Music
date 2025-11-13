@@ -54,6 +54,14 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
         _;
     }
 
+    modifier onlySongArtist(bytes32 songId) {
+        require(
+            EconomicStrategyRouter(router).songArtist(songId) == msg.sender,
+            "Not song artist"
+        );
+        _;
+    }
+
     constructor(address _flowToken, address _router) {
         require(_flowToken != address(0), "Invalid FLOW token");
         require(_router != address(0), "Invalid router");
@@ -74,7 +82,7 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
         address[] calldata recipients,
         uint256[] calldata basisPoints,
         string[] calldata roles
-    ) external {
+    ) external onlySongArtist(songId) {
         require(!royaltySplits[songId].initialized, "Already configured");
         require(recipients.length > 0, "No recipients");
         require(recipients.length == basisPoints.length, "Length mismatch");
@@ -110,7 +118,7 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
         bytes32 songId,
         address listener,
         uint256 amount,
-        PaymentType paymentType
+        EconomicStrategyRouter.PaymentType paymentType
     ) external override onlyRouter {
         require(amount >= MIN_PAYMENT, "Payment too small");
 
@@ -152,7 +160,7 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
      * @param paymentType Type of payment
      * @return Minimum payment amount
      */
-    function getMinPayment(bytes32 songId, PaymentType paymentType)
+    function getMinPayment(bytes32 songId, EconomicStrategyRouter.PaymentType paymentType)
         external
         pure
         override
@@ -171,7 +179,12 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
      * @param listener Address of the listener
      * @return Always true (anyone can pay and listen)
      */
-    function isAuthorized(bytes32 songId, address listener) external pure override returns (bool) {
+    function isAuthorized(bytes32 songId, address listener)
+        external
+        pure
+        override
+        returns (bool)
+    {
         // Unused parameters
         songId;
         listener;
@@ -197,6 +210,32 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
     {
         RoyaltySplit memory split = royaltySplits[songId];
         return (split.recipients, split.basisPoints, split.roles);
+    }
+
+    /**
+     * @notice Preview how a payment would be split
+     */
+    function calculateSplits(bytes32 songId, uint256 /* amount */ )
+        external
+        view
+        override
+        returns (EconomicStrategyRouter.Split[] memory)
+    {
+        RoyaltySplit memory split = royaltySplits[songId];
+        require(split.initialized, "Royalty split not configured");
+
+        EconomicStrategyRouter.Split[] memory result =
+            new EconomicStrategyRouter.Split[](split.recipients.length);
+
+        for (uint256 i = 0; i < split.recipients.length; i++) {
+            result[i] = EconomicStrategyRouter.Split({
+                recipient: split.recipients[i],
+                basisPoints: split.basisPoints[i],
+                role: split.roles[i]
+            });
+        }
+
+        return result;
     }
 
     /**

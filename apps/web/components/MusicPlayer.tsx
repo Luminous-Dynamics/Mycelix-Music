@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, X, Heart, Share2, List } from 'lucide-react';
 import { Song } from '../data/mockSongs';
 
@@ -12,11 +13,11 @@ interface MusicPlayerProps {
 export default function MusicPlayer({ song, onClose, onNext, onPrevious }: MusicPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(240); // 4 minutes demo
+  const duration = 240; // 4 minutes demo
   const [volume, setVolume] = useState(70);
   const [isMuted, setIsMuted] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Simulate playback progress
   useEffect(() => {
@@ -73,7 +74,7 @@ export default function MusicPlayer({ song, onClose, onNext, onPrevious }: Music
           url: window.location.href,
         });
       } catch (err) {
-        console.log('Share cancelled');
+        alert('Share cancelled');
       }
     } else {
       // Fallback: copy to clipboard
@@ -97,10 +98,13 @@ export default function MusicPlayer({ song, onClose, onNext, onPrevious }: Music
         {/* Album Art */}
         <div className="relative w-full aspect-square">
           {/* Real cover art */}
-          <img
+          <Image
             src={song.coverArt}
             alt={`${song.title} by ${song.artist}`}
-            className="w-full h-full object-cover"
+            fill
+            sizes="(max-width: 768px) 100vw, 512px"
+            className="object-cover"
+            priority
           />
 
           {/* Waveform Overlay (simulated) */}

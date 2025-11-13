@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { Upload, Music, Check, ArrowRight, Image, AlertTriangle } from 'lucide-react';
@@ -7,12 +7,12 @@ import { EconomicStrategySDK } from '@/lib';
 import type { EconomicConfig } from '@/lib';
 import { mockSongs } from '../data/mockSongs';
 import Navigation from '../components/Navigation';
+import Link from 'next/link';
 
 export default function UploadPage() {
-  const { authenticated, user, login } = usePrivy();
+  const { authenticated, login } = usePrivy();
   const [currentStep, setCurrentStep] = useState(1);
   const [songFile, setSongFile] = useState<File | null>(null);
-  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [songMetadata, setSongMetadata] = useState({
     title: '',
@@ -62,8 +62,6 @@ export default function UploadPage() {
         alert('Cover image must be less than 5MB');
         return;
       }
-      setCoverFile(file);
-
       // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -116,7 +114,6 @@ export default function UploadPage() {
 
     try {
       // 1. Upload to IPFS (Web3.Storage)
-      console.log('Uploading to IPFS...');
       const formData = new FormData();
       formData.append('file', songFile!);
 
@@ -125,10 +122,8 @@ export default function UploadPage() {
         body: formData,
       });
       const { ipfsHash } = await ipfsResponse.json();
-      console.log('IPFS Hash:', ipfsHash);
 
       // 2. Register on-chain
-      console.log('Registering on-chain...');
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
 
@@ -139,11 +134,9 @@ export default function UploadPage() {
       );
 
       const songId = `${songMetadata.artist}-${songMetadata.title}`;
-      const txHash = await sdk.registerSong(songId, config);
-      console.log('Transaction Hash:', txHash);
+      await sdk.registerSong(songId, config);
 
       // 3. Create DKG claim (epistemic)
-      console.log('Creating DKG claim...');
       await fetch('/api/create-dkg-claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -161,8 +154,7 @@ export default function UploadPage() {
 
       setUploadComplete(true);
     } catch (error) {
-      console.error('Upload failed:', error);
-      alert('Upload failed: ' + (error as Error).message);
+      alert(`Upload failed: ${(error as Error).message}`);
     } finally {
       setIsUploading(false);
     }
@@ -191,12 +183,12 @@ export default function UploadPage() {
             >
               Upload Another
             </button>
-            <a
+            <Link
               href="/discover"
               className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
             >
               View on Platform
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -351,7 +343,6 @@ export default function UploadPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setCoverFile(null);
                           setCoverPreview(null);
                         }}
                         className="absolute top-2 right-2 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition"

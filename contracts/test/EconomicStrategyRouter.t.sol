@@ -21,6 +21,21 @@ contract EconomicStrategyRouterTest is Test {
     bytes32 public constant PAY_PER_STREAM_ID = keccak256("pay-per-stream-v1");
     bytes32 public constant GIFT_ECONOMY_ID = keccak256("gift-economy-v1");
 
+    function _singleRecipientSplit(address recipient)
+        internal
+        pure
+        returns (address[] memory recipients, uint256[] memory bps, string[] memory roles)
+    {
+        recipients = new address[](1);
+        recipients[0] = recipient;
+
+        bps = new uint256[](1);
+        bps[0] = 10000;
+
+        roles = new string[](1);
+        roles[0] = "Artist";
+    }
+
     function setUp() public {
         // Deploy mock tokens
         flowToken = new MockFLOWToken();
@@ -72,21 +87,38 @@ contract EconomicStrategyRouterTest is Test {
         bytes32 songId = keccak256("test-song");
 
         vm.prank(artist);
-        router.registerSong(songId, PAY_PER_STREAM_ID, artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
 
-        assertEq(router.songStrategy(songId), PAY_PER_STREAM_ID);
+        assertEq(router.songStrategy(songId), address(payPerStream));
         assertEq(router.songArtist(songId), artist);
+        assertEq(router.songStrategyId(songId), PAY_PER_STREAM_ID);
     }
 
     function testCannotRegisterSongTwice() public {
         bytes32 songId = keccak256("test-song");
 
         vm.prank(artist);
-        router.registerSong(songId, PAY_PER_STREAM_ID, artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
 
         vm.prank(artist);
         vm.expectRevert("Song already registered");
-        router.registerSong(songId, PAY_PER_STREAM_ID, artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
+    }
+
+    function testChangeSongStrategyOnlyArtist() public {
+        bytes32 songId = keccak256("strategy-song");
+
+        vm.prank(artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
+
+        vm.expectRevert("Not song artist");
+        router.changeSongStrategy(songId, GIFT_ECONOMY_ID);
+
+        vm.prank(artist);
+        router.changeSongStrategy(songId, GIFT_ECONOMY_ID);
+
+        assertEq(router.songStrategy(songId), address(giftEconomy));
+        assertEq(router.songStrategyId(songId), GIFT_ECONOMY_ID);
     }
 
     // ============================================================
@@ -98,7 +130,7 @@ contract EconomicStrategyRouterTest is Test {
 
         // Register song
         vm.prank(artist);
-        router.registerSong(songId, PAY_PER_STREAM_ID, artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
 
         // Configure royalty split (100% to artist)
         address[] memory recipients = new address[](1);
@@ -123,7 +155,7 @@ contract EconomicStrategyRouterTest is Test {
 
         vm.startPrank(listener);
         flowToken.approve(address(router), paymentAmount);
-        router.processPayment(songId, paymentAmount, IEconomicStrategy.PaymentType.STREAM);
+        router.processPayment(songId, paymentAmount, EconomicStrategyRouter.PaymentType.STREAM);
         vm.stopPrank();
 
         // Verify balances
@@ -138,7 +170,7 @@ contract EconomicStrategyRouterTest is Test {
 
         // Register song
         vm.prank(artist);
-        router.registerSong(songId, PAY_PER_STREAM_ID, artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
 
         // Configure royalty split (50/50)
         address[] memory recipients = new address[](2);
@@ -163,12 +195,29 @@ contract EconomicStrategyRouterTest is Test {
 
         vm.startPrank(listener);
         flowToken.approve(address(router), paymentAmount);
-        router.processPayment(songId, paymentAmount, IEconomicStrategy.PaymentType.STREAM);
+        router.processPayment(songId, paymentAmount, EconomicStrategyRouter.PaymentType.STREAM);
         vm.stopPrank();
 
         // Each member should get 50% of net amount
         assertEq(flowToken.balanceOf(member1), netAmount / 2);
         assertEq(flowToken.balanceOf(member2), netAmount / 2);
+    }
+
+    function testPayPerStreamConfigureRequiresArtist() public {
+        bytes32 songId = keccak256("pps-auth");
+
+        vm.prank(artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
+
+        address[] memory recipients = new address[](1);
+        recipients[0] = artist;
+        uint256[] memory basisPoints = new uint256[](1);
+        basisPoints[0] = 10000;
+        string[] memory roles = new string[](1);
+        roles[0] = "Artist";
+
+        vm.expectRevert("Not song artist");
+        payPerStream.configureRoyaltySplit(songId, recipients, basisPoints, roles);
     }
 
     // ============================================================
@@ -180,13 +229,20 @@ contract EconomicStrategyRouterTest is Test {
 
         // Register song
         vm.prank(artist);
-        router.registerSong(songId, GIFT_ECONOMY_ID, artist);
+        router.registerSong(songId, GIFT_ECONOMY_ID);
 
         // Configure gift economy
+        (address[] memory recipients, uint256[] memory splits, string[] memory roles) =
+            _singleRecipientSplit(artist);
+
         vm.prank(artist);
         giftEconomy.configureGiftEconomy(
             songId,
-            artist,
+            recipients,
+            splits,
+            roles,
+            true,
+            0,
             1 ether,  // 1 CGC per listen
             10 ether, // 10 CGC early listener bonus
             100,      // First 100 listeners
@@ -197,7 +253,7 @@ contract EconomicStrategyRouterTest is Test {
         uint256 cgcBefore = cgcRegistry.cgcBalance(listener);
 
         vm.prank(address(router));
-        giftEconomy.processPayment(songId, listener, 0, IEconomicStrategy.PaymentType.STREAM);
+        giftEconomy.processPayment(songId, listener, 0, EconomicStrategyRouter.PaymentType.STREAM);
 
         // Listener should receive CGC + early listener bonus
         uint256 cgcAfter = cgcRegistry.cgcBalance(listener);
@@ -209,11 +265,24 @@ contract EconomicStrategyRouterTest is Test {
 
         // Register song
         vm.prank(artist);
-        router.registerSong(songId, GIFT_ECONOMY_ID, artist);
+        router.registerSong(songId, GIFT_ECONOMY_ID);
 
-        // Configure gift economy
+        (address[] memory recipients, uint256[] memory splits, string[] memory roles) =
+            _singleRecipientSplit(artist);
+
         vm.prank(artist);
-        giftEconomy.configureGiftEconomy(songId, artist, 1 ether, 10 ether, 100, 15000);
+        giftEconomy.configureGiftEconomy(
+            songId,
+            recipients,
+            splits,
+            roles,
+            true,
+            1 ether,
+            1 ether,
+            10 ether,
+            100,
+            15000
+        );
 
         // Process tip
         uint256 tipAmount = 5 ether;
@@ -224,7 +293,7 @@ contract EconomicStrategyRouterTest is Test {
 
         vm.startPrank(listener);
         flowToken.approve(address(router), tipAmount);
-        router.processPayment(songId, tipAmount, IEconomicStrategy.PaymentType.TIP);
+        router.processPayment(songId, tipAmount, EconomicStrategyRouter.PaymentType.TIP);
         vm.stopPrank();
 
         // Artist should receive tip (minus protocol fee)
@@ -239,24 +308,62 @@ contract EconomicStrategyRouterTest is Test {
 
         // Register and configure
         vm.prank(artist);
-        router.registerSong(songId, GIFT_ECONOMY_ID, artist);
+        router.registerSong(songId, GIFT_ECONOMY_ID);
+
+        (address[] memory recipients, uint256[] memory splits, string[] memory roles) =
+            _singleRecipientSplit(artist);
 
         vm.prank(artist);
-        giftEconomy.configureGiftEconomy(songId, artist, 1 ether, 10 ether, 100, 15000);
+        giftEconomy.configureGiftEconomy(
+            songId,
+            recipients,
+            splits,
+            roles,
+            true,
+            0,
+            1 ether,
+            10 ether,
+            100,
+            15000
+        );
 
         // First 6 listens (to trigger repeat listener multiplier)
         for (uint i = 0; i < 6; i++) {
             vm.prank(address(router));
-            giftEconomy.processPayment(songId, listener, 0, IEconomicStrategy.PaymentType.STREAM);
+            giftEconomy.processPayment(songId, listener, 0, EconomicStrategyRouter.PaymentType.STREAM);
         }
 
         // Check listener profile
-        (uint256 totalStreams, , uint256 cgcBalance, bool isEarly) =
+        GiftEconomyStrategy.ListenerProfile memory profile =
             giftEconomy.getListenerProfile(songId, listener);
 
-        assertEq(totalStreams, 6);
-        assertGt(cgcBalance, 6 ether); // Should be more due to early + repeat bonuses
-        assertTrue(isEarly);
+        assertEq(profile.totalStreamsCount, 6);
+        assertGt(profile.cgcBalance, 6 ether); // Should be more due to early + repeat bonuses
+        assertTrue(profile.isEarlyListener);
+    }
+
+    function testGiftEconomyConfigureRequiresArtist() public {
+        bytes32 songId = keccak256("gift-auth");
+
+        vm.prank(artist);
+        router.registerSong(songId, GIFT_ECONOMY_ID);
+
+        (address[] memory recipients, uint256[] memory splits, string[] memory roles) =
+            _singleRecipientSplit(artist);
+
+        vm.expectRevert("Not song artist");
+        giftEconomy.configureGiftEconomy(
+            songId,
+            recipients,
+            splits,
+            roles,
+            true,
+            0,
+            1 ether,
+            10 ether,
+            100,
+            15000
+        );
     }
 
     // ============================================================
@@ -267,7 +374,7 @@ contract EconomicStrategyRouterTest is Test {
         bytes32 songId = keccak256("test-song");
 
         vm.prank(artist);
-        router.registerSong(songId, PAY_PER_STREAM_ID, artist);
+        router.registerSong(songId, PAY_PER_STREAM_ID);
 
         address[] memory recipients = new address[](1);
         recipients[0] = artist;
@@ -286,7 +393,7 @@ contract EconomicStrategyRouterTest is Test {
 
         vm.startPrank(listener);
         flowToken.approve(address(router), paymentAmount);
-        router.processPayment(songId, paymentAmount, IEconomicStrategy.PaymentType.STREAM);
+        router.processPayment(songId, paymentAmount, EconomicStrategyRouter.PaymentType.STREAM);
         vm.stopPrank();
 
         assertEq(flowToken.balanceOf(protocolTreasury), treasuryBefore + expectedFee);
