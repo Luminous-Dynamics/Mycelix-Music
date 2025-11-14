@@ -6,12 +6,77 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+// ============================================================
+// Environment Variable Validation
+// ============================================================
+
+interface EnvironmentConfig {
+  API_PORT: number;
+  DATABASE_URL: string;
+  REDIS_URL: string;
+  NODE_ENV: string;
+}
+
+function validateEnvironment(): EnvironmentConfig {
+  const requiredVars = ['DATABASE_URL', 'REDIS_URL'];
+  const missing = requiredVars.filter(varName => !process.env[varName]);
+
+  if (missing.length > 0) {
+    console.error('❌ Missing required environment variables:', missing.join(', '));
+    console.error('Please check your .env file or environment configuration.');
+    process.exit(1);
+  }
+
+  const port = parseInt(process.env.API_PORT || '3100', 10);
+  if (isNaN(port) || port < 1 || port > 65535) {
+    console.error('❌ Invalid API_PORT. Must be a number between 1 and 65535.');
+    process.exit(1);
+  }
+
+  return {
+    API_PORT: port,
+    DATABASE_URL: process.env.DATABASE_URL!,
+    REDIS_URL: process.env.REDIS_URL!,
+    NODE_ENV: process.env.NODE_ENV || 'development',
+  };
+}
+
+const config = validateEnvironment();
+
 const app = express();
-const PORT = process.env.API_PORT || 3100;
+const PORT = config.API_PORT;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+
+// Security headers
+app.use((req, res, next) => {
+  // Prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+
+  // Prevent MIME type sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  // Enable XSS protection
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+
+  // Referrer policy
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  // Content Security Policy (adjust as needed for your frontend)
+  if (config.NODE_ENV === 'production') {
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;"
+    );
+  }
+
+  next();
+});
+
+// Request size limits
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting to prevent abuse
 const requestCounts = new Map<string, { count: number; resetTime: number }>();
@@ -51,17 +116,83 @@ setInterval(() => {
 // Apply rate limiting to all routes (100 requests per minute)
 app.use(rateLimit(100, 60 * 1000));
 
+// ============================================================
+// Structured Logging
+// ============================================================
+
+interface LogEntry {
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+  message: string;
+  meta?: any;
+}
+
+const logger = {
+  info: (message: string, meta?: any) => {
+    const entry: LogEntry = {
+      timestamp: new Date().toISOString(),
+      level: 'INFO',
+      message,
+      meta,
+    };
+    console.log(JSON.stringify(entry));
+  },
+  warn: (message: string, meta?: any) => {
+    const entry: LogEntry = {
+      timestamp: new Date().toISOString(),
+      level: 'WARN',
+      message,
+      meta,
+    };
+    console.warn(JSON.stringify(entry));
+  },
+  error: (message: string, error?: any) => {
+    const entry: LogEntry = {
+      timestamp: new Date().toISOString(),
+      level: 'ERROR',
+      message,
+      meta: config.NODE_ENV === 'development' && error ? {
+        message: error.message,
+        stack: error.stack,
+        ...error,
+      } : { message: error?.message },
+    };
+    console.error(JSON.stringify(entry));
+  },
+  debug: (message: string, meta?: any) => {
+    if (config.NODE_ENV === 'development') {
+      const entry: LogEntry = {
+        timestamp: new Date().toISOString(),
+        level: 'DEBUG',
+        message,
+        meta,
+      };
+      console.debug(JSON.stringify(entry));
+    }
+  },
+};
+
 // Database connection
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: config.DATABASE_URL,
+});
+
+pool.on('connect', () => {
+  logger.info('PostgreSQL client connected');
+});
+
+pool.on('error', (err) => {
+  logger.error('PostgreSQL client error', err);
 });
 
 // Redis connection
 const redis = createClient({
-  url: process.env.REDIS_URL,
+  url: config.REDIS_URL,
 });
 
-redis.on('error', (err) => console.log('Redis Client Error', err));
+redis.on('error', (err) => logger.error('Redis client error', err));
+redis.on('connect', () => logger.info('Redis client connected'));
+redis.on('ready', () => logger.info('Redis client ready'));
 
 // Initialize database
 async function initDatabase() {
@@ -123,8 +254,8 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_plays_timestamp ON plays(timestamp DESC)
     `);
 
-    console.log('✓ Database tables initialized');
-    console.log('✓ Database indexes created');
+    logger.info('Database tables initialized');
+    logger.info('Database indexes created');
   } finally {
     client.release();
   }
@@ -134,9 +265,39 @@ async function initDatabase() {
 // API Routes
 // ============================================================
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Enhanced health check with dependency status
+app.get('/health', async (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: config.NODE_ENV,
+    dependencies: {
+      database: 'unknown',
+      redis: 'unknown',
+    },
+  };
+
+  // Check database connection
+  try {
+    await pool.query('SELECT 1');
+    health.dependencies.database = 'connected';
+  } catch (error) {
+    health.dependencies.database = 'disconnected';
+    health.status = 'degraded';
+  }
+
+  // Check Redis connection
+  try {
+    await redis.ping();
+    health.dependencies.redis = 'connected';
+  } catch (error) {
+    health.dependencies.redis = 'disconnected';
+    health.status = 'degraded';
+  }
+
+  const statusCode = health.status === 'ok' ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 // Get all songs
@@ -408,24 +569,72 @@ app.get('/api/artists/:address/stats', async (req, res) => {
 // Start Server
 // ============================================================
 
+let server: any;
+
 async function startServer() {
   try {
     // Connect to Redis
     await redis.connect();
-    console.log('✓ Connected to Redis');
+    logger.info('Connected to Redis');
 
     // Initialize database
     await initDatabase();
 
     // Start Express server
-    app.listen(PORT, () => {
-      console.log(`✓ API server running on port ${PORT}`);
-      console.log(`   Health check: http://localhost:${PORT}/health`);
+    server = app.listen(PORT, () => {
+      logger.info(`API server running on port ${PORT}`);
+      logger.info(`Health check: http://localhost:${PORT}/health`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.error('Failed to start server', error);
     process.exit(1);
   }
 }
+
+// ============================================================
+// Graceful Shutdown
+// ============================================================
+
+async function gracefulShutdown(signal: string) {
+  logger.info(`${signal} received, starting graceful shutdown`);
+
+  // Stop accepting new connections
+  if (server) {
+    server.close(() => {
+      logger.info('HTTP server closed');
+    });
+  }
+
+  try {
+    // Close database connections
+    await pool.end();
+    logger.info('Database connections closed');
+
+    // Close Redis connection
+    await redis.quit();
+    logger.info('Redis connection closed');
+
+    logger.info('Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown', error);
+    process.exit(1);
+  }
+}
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled rejection', { reason, promise });
+  gracefulShutdown('unhandledRejection');
+});
 
 startServer();
