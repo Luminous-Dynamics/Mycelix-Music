@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION=${{ steps.get_version.outputs.VERSION }}
+
+          # Extract changelog section for this version
+          CHANGELOG=$(awk "/## \[$VERSION\]/,/## \[/" CHANGELOG.md | sed '$d')
+
+          # Save to file for GitHub release
+          echo "$CHANGELOG" > release_notes.md
+
+          # Set as output (escaped for GitHub Actions)
+          echo "NOTES<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Build contracts
+        run: |
+          cd contracts
+          forge build
+
+      - name: Create release archives
+        run: |
+          # SDK
+          cd packages/sdk && npm pack
+          mv mycelix-music-sdk-*.tgz ../../mycelix-music-sdk-${{ steps.get_version.outputs.VERSION }}.tgz
+          cd ../..
+
+          # Contract artifacts
+          mkdir -p release-artifacts/contracts
+          cp -r contracts/out release-artifacts/contracts/
+          cp -r contracts/src release-artifacts/contracts/
+          tar -czf mycelix-music-contracts-${{ steps.get_version.outputs.VERSION }}.tar.gz -C release-artifacts contracts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release v${{ steps.get_version.outputs.VERSION }}
+          body_path: release_notes.md
+          files: |
+            mycelix-music-sdk-${{ steps.get_version.outputs.VERSION }}.tgz
+            mycelix-music-contracts-${{ steps.get_version.outputs.VERSION }}.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish SDK to npm (if configured)
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          cd packages/sdk
+          npm publish --access public
+        continue-on-error: true
