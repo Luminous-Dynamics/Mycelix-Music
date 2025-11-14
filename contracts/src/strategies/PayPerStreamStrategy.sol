@@ -75,6 +75,10 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
         uint256[] calldata basisPoints,
         string[] calldata roles
     ) external {
+        // Only the song artist can configure royalty splits
+        address artist = EconomicStrategyRouter(router).getSongArtist(songId);
+        require(msg.sender == artist, "Only song artist can configure");
+
         require(!royaltySplits[songId].initialized, "Already configured");
         require(recipients.length > 0, "No recipients");
         require(recipients.length == basisPoints.length, "Length mismatch");
@@ -152,16 +156,12 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
      * @param paymentType Type of payment
      * @return Minimum payment amount
      */
-    function getMinPayment(bytes32 songId, PaymentType paymentType)
+    function getMinPayment(bytes32 /* songId */, PaymentType /* paymentType */)
         external
         pure
         override
         returns (uint256)
     {
-        // Unused parameters
-        songId;
-        paymentType;
-
         return MIN_PAYMENT;
     }
 
@@ -171,12 +171,42 @@ contract PayPerStreamStrategy is IEconomicStrategy, Ownable {
      * @param listener Address of the listener
      * @return Always true (anyone can pay and listen)
      */
-    function isAuthorized(bytes32 songId, address listener) external pure override returns (bool) {
-        // Unused parameters
-        songId;
-        listener;
-
+    function isAuthorized(bytes32 /* songId */, address /* listener */)
+        external
+        pure
+        override
+        returns (bool)
+    {
         return true; // Anyone can pay and stream
+    }
+
+    /**
+     * @notice Calculate payment splits for a song
+     * @param songId Unique identifier for the song
+     * @param amount Amount to be split
+     * @return Array of splits showing how payment will be distributed
+     */
+    function calculateSplits(bytes32 songId, uint256 amount)
+        external
+        view
+        override
+        returns (EconomicStrategyRouter.Split[] memory)
+    {
+        RoyaltySplit memory split = royaltySplits[songId];
+        require(split.initialized, "Royalty split not configured");
+
+        EconomicStrategyRouter.Split[] memory splits =
+            new EconomicStrategyRouter.Split[](split.recipients.length);
+
+        for (uint256 i = 0; i < split.recipients.length; i++) {
+            splits[i] = EconomicStrategyRouter.Split({
+                recipient: split.recipients[i],
+                basisPoints: split.basisPoints[i],
+                role: split.roles[i]
+            });
+        }
+
+        return splits;
     }
 
     /**

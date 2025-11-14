@@ -127,7 +127,7 @@ export class EconomicStrategySDK {
       const basisPoints = config.distributionSplits.map(s => s.basisPoints);
       const roles = config.distributionSplits.map(s => s.role);
 
-      const tx = await strategy.setRoyaltySplit(
+      const tx = await strategy.configureRoyaltySplit(
         songHash,
         recipients,
         basisPoints,
@@ -145,15 +145,16 @@ export class EconomicStrategySDK {
         this.signer!
       );
 
-      const recipients = config.distributionSplits.map(s => s.recipient);
-      const splits = config.distributionSplits.map(s => s.basisPoints);
+      // Get artist address from config or use signer address
+      const artistAddress = config.distributionSplits[0]?.recipient || await this.signer!.getAddress();
 
-      const tx = await strategy.configureGifts(
+      const tx = await strategy.configureGiftEconomy(
         songHash,
-        config.acceptsGifts ?? true,
-        config.minimumPayment ?? 0,
-        recipients,
-        splits
+        artistAddress,
+        ethers.parseEther('1'), // 1 CGC per listen (default)
+        ethers.parseEther('5'), // 5 CGC early listener bonus
+        100, // First 100 listeners get bonus
+        15000 // 1.5x multiplier for repeat listeners
       );
 
       await tx.wait();
@@ -301,25 +302,28 @@ export class EconomicStrategySDK {
   }
 
   /**
-   * Claim CGC rewards (gift economy)
+   * Get listener profile for a specific song in gift economy
    */
-  async claimCGCRewards(
-    artistAddress: string
-  ): Promise<ethers.TransactionReceipt> {
-    if (!this.signer) throw new Error('Signer required');
+  async getListenerProfile(
+    songId: string,
+    strategyAddress: string
+  ): Promise<{
+    totalStreamsCount: bigint;
+    lastStreamTimestamp: bigint;
+    cgcBalance: bigint;
+    isEarlyListener: boolean;
+  }> {
+    const songHash = ethers.id(songId);
+    const listenerAddress = await this.signer?.getAddress() || ethers.ZeroAddress;
 
-    // Get the strategy address for the artist
-    // This would need to track which strategy the artist is using
-    // For now, assume gift economy strategy
-    // TODO: Get actual strategy address from router contract
     const strategy = new ethers.Contract(
-      ethers.ZeroAddress, // Placeholder until contracts are deployed
+      strategyAddress,
       GIFT_ECONOMY_ABI,
-      this.signer
+      this.signer || this.provider
     );
 
-    const tx = await strategy.claimCGCRewards(artistAddress);
-    return await tx.wait();
+    const profile = await strategy.getListenerProfile(songHash, listenerAddress);
+    return profile;
   }
 
   // ========== VIEW FUNCTIONS ==========
@@ -457,15 +461,15 @@ const ROUTER_ABI = [
 ];
 
 const PAY_PER_STREAM_ABI = [
-  'function setRoyaltySplit(bytes32 songId, address[] calldata recipients, uint256[] calldata basisPoints, string[] calldata roles) external',
+  'function configureRoyaltySplit(bytes32 songId, address[] calldata recipients, uint256[] calldata basisPoints, string[] calldata roles) external',
   'function getRoyaltySplit(bytes32 songId) external view returns (address[] memory recipients, uint256[] memory basisPoints, string[] memory roles)',
+  'function getTotalEarnings(bytes32 songId) external view returns (uint256)',
 ];
 
 const GIFT_ECONOMY_ABI = [
-  'function configureGifts(bytes32 songId, bool acceptsGifts, uint256 minGiftAmount, address[] calldata recipients, uint256[] calldata splits) external',
-  'function claimCGCRewards(address artist) external',
-  'function getCGCBalance(address artist, address listener) external view returns (uint256)',
-  'function getListenerStats(address artist, address listener) external view returns (uint256 totalGifts, uint256 totalStreams, uint256 cgcBalance)',
+  'function configureGiftEconomy(bytes32 songId, address artist, uint256 cgcPerListen, uint256 earlyListenerBonus, uint256 earlyListenerThreshold, uint256 repeatListenerMultiplier) external',
+  'function getListenerProfile(bytes32 songId, address listener) external view returns (tuple(uint256 totalStreamsCount, uint256 lastStreamTimestamp, uint256 cgcBalance, bool isEarlyListener))',
+  'function getSongStats(bytes32 songId) external view returns (tuple(address artist, uint256 cgcPerListen, uint256 earlyListenerBonus, uint256 earlyListenerThreshold, uint256 repeatListenerMultiplier, bool initialized) config, uint256 listeners, uint256 totalTips)',
 ];
 
 const ERC20_ABI = [

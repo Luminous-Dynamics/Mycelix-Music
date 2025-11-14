@@ -94,6 +94,10 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
         uint256 earlyListenerThreshold,
         uint256 repeatListenerMultiplier
     ) external {
+        // Only the song artist can configure gift economy
+        address songArtist = EconomicStrategyRouter(router).getSongArtist(songId);
+        require(msg.sender == songArtist, "Only song artist can configure");
+
         require(!giftConfigs[songId].initialized, "Already configured");
         require(artist != address(0), "Invalid artist");
         require(cgcPerListen > 0, "CGC per listen must be > 0");
@@ -200,16 +204,12 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
      * @param paymentType Type of payment
      * @return Always 0 (listening is free)
      */
-    function getMinPayment(bytes32 songId, PaymentType paymentType)
+    function getMinPayment(bytes32 /* songId */, PaymentType /* paymentType */)
         external
         pure
         override
         returns (uint256)
     {
-        // Unused parameters
-        songId;
-        paymentType;
-
         return 0; // Free!
     }
 
@@ -219,12 +219,41 @@ contract GiftEconomyStrategy is IEconomicStrategy, Ownable {
      * @param listener Address of the listener
      * @return Always true (free for everyone)
      */
-    function isAuthorized(bytes32 songId, address listener) external pure override returns (bool) {
-        // Unused parameters
-        songId;
-        listener;
-
+    function isAuthorized(bytes32 /* songId */, address /* listener */)
+        external
+        pure
+        override
+        returns (bool)
+    {
         return true; // Free for all!
+    }
+
+    /**
+     * @notice Calculate payment splits for a song (in gift economy, tips go 100% to artist)
+     * @param songId Unique identifier for the song
+     * @param amount Amount to be split (only relevant for tips)
+     * @return Array of splits showing how payment will be distributed
+     */
+    function calculateSplits(bytes32 songId, uint256 amount)
+        external
+        view
+        override
+        returns (EconomicStrategyRouter.Split[] memory)
+    {
+        GiftConfig memory config = giftConfigs[songId];
+        require(config.initialized, "Gift economy not configured");
+
+        // In gift economy, tips go 100% to the artist
+        EconomicStrategyRouter.Split[] memory splits =
+            new EconomicStrategyRouter.Split[](1);
+
+        splits[0] = EconomicStrategyRouter.Split({
+            recipient: config.artist,
+            basisPoints: 10000, // 100%
+            role: "artist"
+        });
+
+        return splits;
     }
 
     /**

@@ -52,6 +52,11 @@ contract EconomicStrategyRouter is Ownable, ReentrancyGuard {
     mapping(bytes32 => bytes32) public songStrategyId;    // songId => strategy identifier
     mapping(bytes32 => address) public songArtist;        // songId => artist wallet
 
+    // Allow strategies to query artist
+    function getSongArtist(bytes32 songId) external view returns (address) {
+        return songArtist[songId];
+    }
+
     // Protocol economics
     uint256 public protocolFeeBps = 100; // 1%
     address public protocolTreasury;
@@ -191,6 +196,8 @@ contract EconomicStrategyRouter is Ownable, ReentrancyGuard {
             );
         }
 
+        // Reset approval to 0 first to prevent approval race condition
+        require(flowToken.approve(strategyAddress, 0), "Approval reset failed");
         require(flowToken.approve(strategyAddress, netAmount), "Approval failed");
         strategy.processPayment(songId, msg.sender, netAmount, paymentType);
 

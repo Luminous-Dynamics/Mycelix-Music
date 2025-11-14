@@ -88,6 +88,12 @@ app.get('/api/songs', async (req, res) => {
 app.get('/api/songs/:id', async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Input validation
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'Invalid song ID' });
+    }
+
     const result = await pool.query('SELECT * FROM songs WHERE id = $1', [id]);
 
     if (result.rows.length === 0) {
@@ -95,7 +101,7 @@ app.get('/api/songs/:id', async (req, res) => {
     }
 
     res.json(result.rows[0]);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to fetch song:', error);
     res.status(500).json({ error: 'Failed to fetch song' });
   }
@@ -106,16 +112,42 @@ app.post('/api/songs', async (req, res) => {
   try {
     const { id, title, artist, artistAddress, genre, description, ipfsHash, paymentModel } = req.body;
 
+    // Input validation
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'Invalid or missing song ID' });
+    }
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return res.status(400).json({ error: 'Invalid or missing title' });
+    }
+    if (!artist || typeof artist !== 'string' || artist.trim().length === 0) {
+      return res.status(400).json({ error: 'Invalid or missing artist name' });
+    }
+    if (!artistAddress || typeof artistAddress !== 'string' || !artistAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return res.status(400).json({ error: 'Invalid or missing artist address' });
+    }
+    if (!genre || typeof genre !== 'string') {
+      return res.status(400).json({ error: 'Invalid or missing genre' });
+    }
+    if (!ipfsHash || typeof ipfsHash !== 'string') {
+      return res.status(400).json({ error: 'Invalid or missing IPFS hash' });
+    }
+    if (!paymentModel || typeof paymentModel !== 'string') {
+      return res.status(400).json({ error: 'Invalid or missing payment model' });
+    }
+
     const result = await pool.query(
       `INSERT INTO songs (id, title, artist, artist_address, genre, description, ipfs_hash, payment_model)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [id, title, artist, artistAddress, genre, description, ipfsHash, paymentModel]
+      [id, title, artist, artistAddress, genre, description || '', ipfsHash, paymentModel]
     );
 
     res.status(201).json(result.rows[0]);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to register song:', error);
+    if (error.code === '23505') { // Unique violation
+      return res.status(409).json({ error: 'Song with this ID already exists' });
+    }
     res.status(500).json({ error: 'Failed to register song' });
   }
 });
@@ -126,11 +158,40 @@ app.post('/api/songs/:id/play', async (req, res) => {
     const { id } = req.params;
     const { listenerAddress, amount, paymentType } = req.body;
 
+    // Input validation
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'Invalid song ID' });
+    }
+
+    // Validate listener address if provided
+    if (listenerAddress && !listenerAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return res.status(400).json({ error: 'Invalid listener address' });
+    }
+
+    // Validate amount if provided
+    const playAmount = parseFloat(amount) || 0;
+    if (playAmount < 0) {
+      return res.status(400).json({ error: 'Amount cannot be negative' });
+    }
+
+    // Validate payment type
+    const validPaymentTypes = ['stream', 'download', 'tip', 'patronage', 'nft_access'];
+    const type = paymentType || 'stream';
+    if (!validPaymentTypes.includes(type)) {
+      return res.status(400).json({ error: 'Invalid payment type' });
+    }
+
+    // Check if song exists
+    const songCheck = await pool.query('SELECT id FROM songs WHERE id = $1', [id]);
+    if (songCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Song not found' });
+    }
+
     // Insert play record
     await pool.query(
       `INSERT INTO plays (song_id, listener_address, amount, payment_type)
        VALUES ($1, $2, $3, $4)`,
-      [id, listenerAddress || 'anonymous', amount || 0, paymentType || 'stream']
+      [id, listenerAddress || 'anonymous', playAmount, type]
     );
 
     // Update song stats
@@ -139,11 +200,11 @@ app.post('/api/songs/:id/play', async (req, res) => {
        SET plays = plays + 1,
            earnings = earnings + $2
        WHERE id = $1`,
-      [id, amount || 0]
+      [id, playAmount]
     );
 
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to record play:', error);
     res.status(500).json({ error: 'Failed to record play' });
   }
@@ -219,8 +280,13 @@ app.get('/api/artists/:address/stats', async (req, res) => {
   try {
     const { address } = req.params;
 
+    // Input validation
+    if (!address || !address.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return res.status(400).json({ error: 'Invalid artist address' });
+    }
+
     const songsResult = await pool.query(
-      'SELECT COUNT(*), SUM(plays), SUM(earnings) FROM songs WHERE artist_address = $1',
+      'SELECT COUNT(*) as count, COALESCE(SUM(plays), 0) as total_plays, COALESCE(SUM(earnings), 0) as total_earnings FROM songs WHERE artist_address = $1',
       [address]
     );
 
@@ -229,10 +295,10 @@ app.get('/api/artists/:address/stats', async (req, res) => {
     res.json({
       artistAddress: address,
       totalSongs: parseInt(stats.count) || 0,
-      totalPlays: parseInt(stats.sum) || 0,
-      totalEarnings: parseFloat(stats.sum) || 0,
+      totalPlays: parseInt(stats.total_plays) || 0,
+      totalEarnings: parseFloat(stats.total_earnings) || 0,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to fetch artist stats:', error);
     res.status(500).json({ error: 'Failed to fetch artist stats' });
   }
