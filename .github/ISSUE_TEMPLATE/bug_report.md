@@ -23,9 +23,15 @@ A clear and concise description of what you expected to happen.
 If applicable, add screenshots to help explain your problem.
 
 **Environment:**
- - OS: [e.g. macOS 13.0]
- - Browser: [e.g. Chrome 120]
- - Version: [e.g. v1.0.0]
+ - OS: [e.g. macOS, Ubuntu]
+ - Node version: [e.g. 20.10.0]
+ - Browser [e.g. chrome, safari]
+ - Version [e.g. 0.2.0]
 
 **Additional context**
 Add any other context about the problem here.
+
+**Logs**
+```
+Paste relevant logs here
+```
