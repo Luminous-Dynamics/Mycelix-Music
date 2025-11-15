@@ -1,0 +1,66 @@
+# Prometheus configuration for Mycelix Music
+# This file configures Prometheus to scrape metrics from all services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'mycelix-music'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Load rules
+rule_files:
+  - 'alert_rules.yml'
+
+# Scrape configurations
+scrape_configs:
+  # API metrics
+  - job_name: 'mycelix-api'
+    static_configs:
+      - targets: ['api:3100']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # PostgreSQL exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+  # Redis exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+
+  # Node exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Frontend (Next.js) metrics
+  - job_name: 'frontend'
+    static_configs:
+      - targets: ['web:3000']
+    metrics_path: '/api/metrics'
+    scrape_interval: 30s
+
+  # Blockchain node metrics (if running own node)
+  # - job_name: 'geth'
+  #   static_configs:
+  #     - targets: ['geth:9545']
+  #   scrape_interval: 60s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

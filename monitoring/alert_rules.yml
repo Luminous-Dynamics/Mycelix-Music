@@ -1,0 +1,177 @@
+# Prometheus Alert Rules for Mycelix Music
+
+groups:
+  - name: api_alerts
+    interval: 30s
+    rules:
+      # High error rate
+      - alert: HighAPIErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High API error rate detected"
+          description: "API error rate is {{ $value }}% over the last 5 minutes"
+
+      # API down
+      - alert: APIDown
+        expr: up{job="mycelix-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API is down"
+          description: "Mycelix API has been down for more than 1 minute"
+
+      # Slow response time
+      - alert: SlowAPIResponse
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API response time is slow"
+          description: "95th percentile response time is {{ $value }}s"
+
+      # High request rate (potential DDoS)
+      - alert: HighRequestRate
+        expr: rate(http_requests_total[1m]) > 1000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusually high request rate"
+          description: "Request rate is {{ $value }} req/sec"
+
+  - name: database_alerts
+    interval: 30s
+    rules:
+      # Database down
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL database has been down for more than 1 minute"
+
+      # High connection count
+      - alert: HighDatabaseConnections
+        expr: pg_stat_database_numbackends > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of database connections"
+          description: "Database has {{ $value }} active connections"
+
+      # Slow queries
+      - alert: SlowDatabaseQueries
+        expr: rate(pg_stat_statements_mean_exec_time_seconds[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database queries are slow"
+          description: "Average query execution time is {{ $value }}s"
+
+      # Low disk space
+      - alert: LowDatabaseDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql"} / node_filesystem_size_bytes{mountpoint="/var/lib/postgresql"}) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space on database volume"
+          description: "Only {{ $value }}% disk space remaining"
+
+  - name: redis_alerts
+    interval: 30s
+    rules:
+      # Redis down
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis has been down for more than 1 minute"
+
+      # High memory usage
+      - alert: HighRedisMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using {{ $value }}% of available memory"
+
+      # High cache miss rate
+      - alert: HighCacheMissRate
+        expr: rate(redis_keyspace_misses_total[5m]) / rate(redis_keyspace_hits_total[5m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High cache miss rate"
+          description: "Cache miss rate is {{ $value }}%"
+
+  - name: system_alerts
+    interval: 30s
+    rules:
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}%"
+
+      # Low disk space
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Only {{ $value }}% disk space remaining"
+
+  - name: business_alerts
+    interval: 60s
+    rules:
+      # No plays in last hour (potential issue)
+      - alert: NoPlaysInLastHour
+        expr: increase(plays_total[1h]) == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No plays recorded in last hour"
+          description: "This might indicate an issue with the platform"
+
+      # High failed payment rate
+      - alert: HighFailedPaymentRate
+        expr: rate(payment_failures_total[10m]) / rate(payment_attempts_total[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High payment failure rate"
+          description: "{{ $value }}% of payments are failing"
