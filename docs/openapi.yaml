@@ -1,0 +1,620 @@
+openapi: 3.0.3
+info:
+  title: Mycelix Music API
+  description: |
+    Decentralized music platform with modular economic strategies.
+
+    ## Features
+    - 4 economic models: Pay-per-stream, Gift Economy, Patronage, Auction
+    - Instant artist payments
+    - Full transparency
+    - Decentralized storage (IPFS)
+
+    ## Authentication
+    Most endpoints require wallet-based authentication via Privy.
+    Include the JWT token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+
+    ## Rate Limiting
+    - 100 requests per 15 minutes per IP
+    - 1000 requests per hour for authenticated users
+
+    ## Base URL
+    - Development: `http://localhost:3100`
+    - Production: `https://api.mycelix.com`
+
+  version: 1.0.0
+  contact:
+    email: hello@mycelix.com
+    url: https://mycelix.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3100
+    description: Local development server
+  - url: https://api-testnet.mycelix.com
+    description: Testnet API server
+  - url: https://api.mycelix.com
+    description: Production API server
+
+tags:
+  - name: Health
+    description: Health check and status endpoints
+  - name: Songs
+    description: Song management and discovery
+  - name: Artists
+    description: Artist profiles and statistics
+  - name: Plays
+    description: Play tracking and history
+  - name: Strategies
+    description: Economic strategy information
+  - name: Analytics
+    description: Platform analytics and metrics
+  - name: Upload
+    description: File upload to IPFS
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Check if the API is running
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  uptime:
+                    type: number
+                    description: Server uptime in seconds
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Prometheus metrics
+      description: Get Prometheus-format metrics for monitoring
+      responses:
+        '200':
+          description: Metrics in Prometheus format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/songs:
+    get:
+      tags:
+        - Songs
+      summary: List all songs
+      description: Get paginated list of all songs
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: strategy
+          in: query
+          description: Filter by economic strategy
+          schema:
+            type: string
+            enum: [pay-per-stream, gift-economy, patronage, auction]
+        - name: genre
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [newest, oldest, popular, trending]
+            default: newest
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  songs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Song'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      tags:
+        - Songs
+      summary: Register a new song
+      description: Register a song on the blockchain
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SongCreate'
+      responses:
+        '201':
+          description: Song created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Song'
+        '400':
+          description: Invalid request
+        '401':
+          description: Unauthorized
+
+  /api/songs/{songId}:
+    get:
+      tags:
+        - Songs
+      summary: Get song by ID
+      parameters:
+        - name: songId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Song details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Song'
+        '404':
+          description: Song not found
+
+  /api/songs/{songId}/play:
+    post:
+      tags:
+        - Plays
+      summary: Record a play
+      description: Record that a song was played and process payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: songId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                duration:
+                  type: number
+                  description: Play duration in seconds
+      responses:
+        '200':
+          description: Play recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  playId:
+                    type: string
+                  transactionHash:
+                    type: string
+                  amountPaid:
+                    type: string
+
+  /api/songs/{songId}/stats:
+    get:
+      tags:
+        - Songs
+      summary: Get song statistics
+      parameters:
+        - name: songId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Song statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SongStats'
+
+  /api/songs/search:
+    get:
+      tags:
+        - Songs
+      summary: Search songs
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Song'
+                  total:
+                    type: integer
+
+  /api/artists:
+    get:
+      tags:
+        - Artists
+      summary: List artists
+      responses:
+        '200':
+          description: List of artists
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Artist'
+
+  /api/artists/{address}:
+    get:
+      tags:
+        - Artists
+      summary: Get artist profile
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+      responses:
+        '200':
+          description: Artist profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Artist'
+
+  /api/artists/{address}/songs:
+    get:
+      tags:
+        - Artists
+      summary: Get artist's songs
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artist's songs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Song'
+
+  /api/artists/{address}/stats:
+    get:
+      tags:
+        - Artists
+      summary: Get artist statistics
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artist statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtistStats'
+
+  /api/strategies:
+    get:
+      tags:
+        - Strategies
+      summary: List economic strategies
+      responses:
+        '200':
+          description: Available economic strategies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Strategy'
+
+  /api/analytics:
+    post:
+      tags:
+        - Analytics
+      summary: Track analytics event
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyticsEvent'
+      responses:
+        '204':
+          description: Event tracked
+
+  /api/stats:
+    get:
+      tags:
+        - Analytics
+      summary: Get platform statistics
+      responses:
+        '200':
+          description: Platform statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformStats'
+
+  /api/upload/ipfs:
+    post:
+      tags:
+        - Upload
+      summary: Upload file to IPFS
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ipfsHash:
+                    type: string
+                  url:
+                    type: string
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Song:
+      type: object
+      properties:
+        songId:
+          type: string
+        title:
+          type: string
+        artist:
+          type: string
+        artistAddress:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+        genre:
+          type: string
+        duration:
+          type: integer
+          description: Duration in seconds
+        ipfsHash:
+          type: string
+        strategy:
+          type: string
+          enum: [pay-per-stream, gift-economy, patronage, auction]
+        price:
+          type: string
+          description: Price in FLOW tokens (for pay-per-stream)
+        createdAt:
+          type: string
+          format: date-time
+        playCount:
+          type: integer
+        metadata:
+          type: object
+
+    SongCreate:
+      type: object
+      required:
+        - title
+        - artist
+        - genre
+        - ipfsHash
+        - strategy
+      properties:
+        title:
+          type: string
+        artist:
+          type: string
+        genre:
+          type: string
+        duration:
+          type: integer
+        ipfsHash:
+          type: string
+        strategy:
+          type: string
+        price:
+          type: string
+        splits:
+          type: array
+          items:
+            type: object
+            properties:
+              recipient:
+                type: string
+              basisPoints:
+                type: integer
+              role:
+                type: string
+
+    SongStats:
+      type: object
+      properties:
+        songId:
+          type: string
+        playCount:
+          type: integer
+        uniqueListeners:
+          type: integer
+        totalEarnings:
+          type: string
+        avgPlayDuration:
+          type: number
+        lastPlayed:
+          type: string
+          format: date-time
+
+    Artist:
+      type: object
+      properties:
+        address:
+          type: string
+        name:
+          type: string
+        bio:
+          type: string
+        avatar:
+          type: string
+        totalSongs:
+          type: integer
+        totalPlays:
+          type: integer
+        followers:
+          type: integer
+
+    ArtistStats:
+      type: object
+      properties:
+        address:
+          type: string
+        totalPlays:
+          type: integer
+        totalEarnings:
+          type: string
+        uniqueListeners:
+          type: integer
+        avgEarningsPerPlay:
+          type: string
+        topSongs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Song'
+
+    Strategy:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        contractAddress:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+
+    AnalyticsEvent:
+      type: object
+      properties:
+        event:
+          type: string
+        properties:
+          type: object
+        userAddress:
+          type: string
+        timestamp:
+          type: integer
+
+    PlatformStats:
+      type: object
+      properties:
+        totalSongs:
+          type: integer
+        totalPlays:
+          type: integer
+        totalArtists:
+          type: integer
+        totalRevenue:
+          type: string
+        activeStrategies:
+          type: integer
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        statusCode:
+          type: integer
