@@ -84,6 +84,26 @@ mycelix-music/
 
 **Follow the complete guide:** [**QUICKSTART.md**](./QUICKSTART.md)
 
+#### Option A: Nix Development Shell (recommended)
+
+If you're on NixOS (or have Nix installed) the repo already provides a flake:
+
+```bash
+# 0. Drop into the dev shell (installs Node 20, npm, git, TypeScript tooling, etc.)
+nix develop
+
+# 1. Install JavaScript dependencies inside the shell
+npm install
+
+# 2. Continue with the steps below (anvil, deploy, services, etc.)
+```
+
+The shell works on any system supported by `nixos-unstable`, so teammates get identical toolchains without touching global Node installs.
+
+#### Option B: Manual setup (Node/npm on host)
+
+> **Note:** Contract scripts (`npm run contracts:*`, `forge fmt`, etc.) require [Foundry](https://book.getfoundry.sh/getting-started/installation). If Foundry isn't installed the contract lint step simply logs a warning and continues.
+
 ```bash
 # 1. Navigate to project
 cd /srv/luminous-dynamics/04-infinite-play/core/mycelix-music
@@ -120,6 +140,13 @@ cd apps/web && npm run dev
 - Beautiful UI
 
 **Detailed instructions, troubleshooting, and verification:** See [QUICKSTART.md](./QUICKSTART.md)
+
+### Developer Workflows & Quality Gates
+
+- `npm run lint` &mdash; runs Turbo-powered linting across API, SDK, frontend, and contract packages. If Foundry (`forge`) isn’t installed, the contracts lint step logs `[contracts] forge not found; skipping lint`.
+- `npm run lint --workspace=<pkg>` &mdash; lint an individual workspace (e.g., `apps/api`, `packages/sdk`, `apps/web`) when iterating locally.
+- `npm run test --workspace=packages/sdk` &mdash; runs the Jest suite for the TypeScript SDK (watchman disabled via local Jest config, safe for sandboxed CI).
+- `nix flake check` &mdash; once run outside sandboxed environments, this executes the flake-defined checks; for now the dev shell (`nix develop`) is the primary Nix entrypoint.
 
 ### For Artists: Upload Your First Song
 

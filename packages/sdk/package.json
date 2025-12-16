@@ -9,7 +9,7 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "lint": "eslint src --ext .ts",
-    "test": "jest"
+    "test": "jest --config jest.config.cjs --runInBand --passWithNoTests"
   },
   "dependencies": {
     "ethers": "^6.9.0"

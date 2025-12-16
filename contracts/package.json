@@ -9,7 +9,7 @@
     "test:gas": "forge test --gas-report",
     "coverage": "forge coverage",
     "clean": "forge clean",
-    "lint": "forge fmt --check",
+    "lint": "sh -c 'if command -v forge >/dev/null 2>&1; then forge fmt --check; else echo \"[contracts] forge not found; skipping lint\"; fi'",
     "format": "forge fmt",
     "deploy:local": "forge script script/DeployLocal.s.sol --rpc-url http://localhost:8545 --private-key ${PRIVATE_KEY} --broadcast",
     "deploy:testnet": "forge script script/DeployTestnet.s.sol --rpc-url ${RPC_URL} --private-key ${PRIVATE_KEY} --broadcast --verify",
