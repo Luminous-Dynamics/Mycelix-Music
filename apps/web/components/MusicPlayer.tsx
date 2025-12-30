@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, X, Heart, Share2, List } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, X, Heart, Share2, List, Loader2, AlertCircle } from 'lucide-react';
 import { Song } from '../data/mockSongs';
 
 interface MusicPlayerProps {
@@ -7,41 +7,180 @@ interface MusicPlayerProps {
   onClose: () => void;
   onNext?: () => void;
   onPrevious?: () => void;
+  onPaymentRequired?: (song: Song) => Promise<boolean>;
 }
 
-export default function MusicPlayer({ song, onClose, onNext, onPrevious }: MusicPlayerProps) {
-  const [isPlaying, setIsPlaying] = useState(true);
+// IPFS gateways in priority order
+const IPFS_GATEWAYS = [
+  'https://cloudflare-ipfs.com/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://dweb.link/ipfs/',
+];
+
+export default function MusicPlayer({ song, onClose, onNext, onPrevious, onPaymentRequired }: MusicPlayerProps) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(240); // 4 minutes demo
+  const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(70);
   const [isMuted, setIsMuted] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [buffered, setBuffered] = useState(0);
+  const [paymentPending, setPaymentPending] = useState(false);
 
-  // Simulate playback progress
+  // Get audio URL - prefer direct URL, fall back to IPFS gateway
+  const getAudioUrl = useCallback(() => {
+    if (song.audioUrl) {
+      return song.audioUrl;
+    }
+    if (song.ipfsHash) {
+      // Try first gateway, component will retry others on error
+      return `${IPFS_GATEWAYS[0]}${song.ipfsHash}`;
+    }
+    return null;
+  }, [song.audioUrl, song.ipfsHash]);
+
+  // Initialize audio on song change
   useEffect(() => {
-    if (isPlaying) {
-      progressIntervalRef.current = setInterval(() => {
-        setCurrentTime((prev) => {
-          if (prev >= duration) {
-            setIsPlaying(false);
-            return duration;
-          }
-          return prev + 1;
-        });
-      }, 1000);
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    setIsLoading(true);
+    setLoadError(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffered(0);
+
+    const audioUrl = getAudioUrl();
+    if (audioUrl) {
+      audio.src = audioUrl;
+      audio.load();
     } else {
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-      }
+      setLoadError('No audio source available');
+      setIsLoading(false);
     }
 
     return () => {
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
+      audio.pause();
+    };
+  }, [song.id, getAudioUrl]);
+
+  // Audio event handlers
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration);
+      setIsLoading(false);
+      // Auto-play when loaded
+      audio.play().catch(() => {
+        // Autoplay blocked, user needs to click play
+        setIsPlaying(false);
+      });
+    };
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime);
+    };
+
+    const handleProgress = () => {
+      if (audio.buffered.length > 0) {
+        const bufferedEnd = audio.buffered.end(audio.buffered.length - 1);
+        setBuffered((bufferedEnd / audio.duration) * 100);
       }
     };
-  }, [isPlaying, duration]);
+
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      if (onNext) onNext();
+    };
+
+    const handleError = () => {
+      // Try alternate IPFS gateway
+      const currentSrc = audio.src;
+      const currentGatewayIndex = IPFS_GATEWAYS.findIndex(g => currentSrc.startsWith(g));
+
+      if (song.ipfsHash && currentGatewayIndex < IPFS_GATEWAYS.length - 1) {
+        const nextGateway = IPFS_GATEWAYS[currentGatewayIndex + 1];
+        audio.src = `${nextGateway}${song.ipfsHash}`;
+        audio.load();
+      } else {
+        setLoadError('Failed to load audio. The file may not be available.');
+        setIsLoading(false);
+      }
+    };
+
+    const handleCanPlay = () => {
+      setIsLoading(false);
+    };
+
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('progress', handleProgress);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('error', handleError);
+    audio.addEventListener('canplay', handleCanPlay);
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('progress', handleProgress);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('error', handleError);
+      audio.removeEventListener('canplay', handleCanPlay);
+    };
+  }, [song.ipfsHash, onNext]);
+
+  // Handle play/pause with payment check
+  const togglePlay = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      // Check if payment is required
+      if (onPaymentRequired) {
+        setPaymentPending(true);
+        try {
+          const approved = await onPaymentRequired(song);
+          if (!approved) {
+            setPaymentPending(false);
+            return;
+          }
+        } catch (error) {
+          console.error('Payment failed:', error);
+          setPaymentPending(false);
+          return;
+        }
+        setPaymentPending(false);
+      }
+
+      try {
+        await audio.play();
+      } catch (error) {
+        console.error('Playback failed:', error);
+      }
+    }
+  };
+
+  // Volume control
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = isMuted ? 0 : volume / 100;
+    }
+  }, [volume, isMuted]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -50,7 +189,10 @@ export default function MusicPlayer({ song, onClose, onNext, onPrevious }: Music
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTime = parseInt(e.target.value);
+    const audio = audioRef.current;
+    if (!audio) return;
+    const newTime = parseFloat(e.target.value);
+    audio.currentTime = newTime;
     setCurrentTime(newTime);
   };
 
@@ -84,12 +226,15 @@ export default function MusicPlayer({ song, onClose, onNext, onPrevious }: Music
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 rounded-2xl max-w-2xl w-full shadow-2xl border border-white/10 overflow-hidden">
+      {/* Hidden Audio Element */}
+      <audio ref={audioRef} preload="metadata" />
+
+      <div className="bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 rounded-2xl max-w-2xl w-full shadow-2xl border border-white/10 overflow-hidden relative">
 
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition"
+          className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition z-10"
         >
           <X className="w-6 h-6 text-white" />
         </button>
@@ -103,16 +248,39 @@ export default function MusicPlayer({ song, onClose, onNext, onPrevious }: Music
             className="w-full h-full object-cover"
           />
 
-          {/* Waveform Overlay (simulated) */}
-          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center space-x-1 p-4">
-            {Array.from({ length: 50 }).map((_, i) => {
-              const height = Math.random() * 60 + 20;
-              const isActive = i < (currentTime / duration) * 50;
+          {/* Loading Overlay */}
+          {isLoading && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+              <div className="text-center">
+                <Loader2 className="w-12 h-12 text-purple-400 animate-spin mx-auto mb-2" />
+                <p className="text-white text-sm">Loading audio...</p>
+              </div>
+            </div>
+          )}
+
+          {/* Error Overlay */}
+          {loadError && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+              <div className="text-center p-4">
+                <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-2" />
+                <p className="text-white text-sm">{loadError}</p>
+                <p className="text-gray-400 text-xs mt-2">This is demo mode - real IPFS audio will work in production</p>
+              </div>
+            </div>
+          )}
+
+          {/* Waveform/Progress Overlay */}
+          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center space-x-0.5 p-4">
+            {Array.from({ length: 60 }).map((_, i) => {
+              const height = 20 + Math.sin(i * 0.5) * 30 + Math.random() * 20;
+              const progress = duration > 0 ? (currentTime / duration) * 60 : 0;
+              const isActive = i < progress;
+              const isBuffered = i < (buffered / 100) * 60;
               return (
                 <div
                   key={i}
-                  className={`w-1 rounded-full transition-all ${
-                    isActive ? 'bg-purple-400' : 'bg-white/30'
+                  className={`w-1 rounded-full transition-colors ${
+                    isActive ? 'bg-purple-400' : isBuffered ? 'bg-white/40' : 'bg-white/20'
                   }`}
                   style={{ height: `${height}%` }}
                 />
@@ -163,10 +331,13 @@ export default function MusicPlayer({ song, onClose, onNext, onPrevious }: Music
             </button>
 
             <button
-              onClick={() => setIsPlaying(!isPlaying)}
-              className="p-5 rounded-full bg-purple-600 hover:bg-purple-700 transition shadow-lg shadow-purple-500/50"
+              onClick={togglePlay}
+              disabled={isLoading || !!loadError || paymentPending}
+              className="p-5 rounded-full bg-purple-600 hover:bg-purple-700 transition shadow-lg shadow-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isPlaying ? (
+              {paymentPending ? (
+                <Loader2 className="w-8 h-8 text-white animate-spin" />
+              ) : isPlaying ? (
                 <Pause className="w-8 h-8 text-white" />
               ) : (
                 <Play className="w-8 h-8 text-white ml-1" />
