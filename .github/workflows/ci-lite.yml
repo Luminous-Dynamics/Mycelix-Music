@@ -1,0 +1,35 @@
+name: CI Lite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-type-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (monorepo)
+        run: npm run lint
+
+      - name: Type-check Web
+        run: npm run type-check --workspace=apps/web
+
+      - name: Build API
+        run: npm run build --workspace=apps/api
+
+      - name: Build SDK
+        run: npm run build --workspace=packages/sdk

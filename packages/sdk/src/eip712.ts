@@ -50,7 +50,7 @@ export async function signTypedData(
   types: Record<string, Array<{ name: string; type: string }>>,
   value: Record<string, any>,
 ) {
-  // @ts-expect-error _signTypedData exists on Signer
-  const signature = await (signer as any)._signTypedData(domain, types, value);
+  // ethers v6 uses signTypedData directly on the signer
+  const signature = await signer.signTypedData(domain, types, value);
   return signature;
 }

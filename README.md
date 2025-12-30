@@ -1,9 +1,25 @@
 # 🎵 Mycelix Music: Decentralized Music Platform with Modular Economics
 
-**Status:** ✅ Fully Functional - Ready to Run Locally
+> **The default choice for the entire music industry.**
+
 **Vision:** Every artist chooses their own economic operating system
-**Innovation:** First music platform with truly pluggable payment models
-**Lines of Code:** 3,555 lines across 24 files + 37K words documentation
+**Innovation:** First music platform with truly pluggable payment models + zero-cost streaming via Holochain
+**Goal:** Artists earn 10-50x more, community-owned infrastructure, unstoppable
+
+---
+
+## ⚡ Current Status (December 2025)
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Smart Contracts** | ✅ Working | 2 strategies deployed, tested |
+| **Frontend** | ✅ Working | Next.js with wizard |
+| **Backend API** | ✅ Building | TypeScript, Express |
+| **IPFS Storage** | ⚠️ Mock | Web3.Storage integration pending |
+| **Holochain** | 📋 Designed | Zero-cost streaming planned |
+| **CDN** | 📋 Planned | Community-owned nodes |
+
+**See:** [INDUSTRY_ROADMAP.md](./INDUSTRY_ROADMAP.md) for the full transformation plan
 
 ---
 

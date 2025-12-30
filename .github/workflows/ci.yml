@@ -1,4 +1,4 @@
-name: Mycelix-Music CI
+name: CI
 
 on:
   push:
@@ -6,29 +6,84 @@ on:
   pull_request:
     branches: [ main ]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Install Rust
-      uses: dtolnay/rust-action@stable
-      with:
-        components: clippy, rustfmt
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-    - name: Check formatting
-      run: cargo fmt --all -- --check
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Lint (monorepo)
+        run: npm run lint
 
-    - name: Build
-      run: cargo build --verbose
+      - name: Type-check Web
+        run: npm run type-check --workspace=apps/web
 
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Build API
+        run: npm run build --workspace=apps/api
+
+      - name: Build SDK
+        run: npm run build --workspace=packages/sdk
+
+      - name: Test SDK
+        run: npm run test --workspace=packages/sdk
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Contracts build
+        run: npm run contracts:build
+
+      - name: Contracts tests (fuzzed)
+        run: |
+          cd contracts
+          forge test --fuzz-runs 256
+
+      - name: Contracts test (free stream via router)
+        run: |
+          cd contracts
+          forge test -m testGiftEconomyFreeListeningViaRouter -vvv
+
+      - name: Start services (Postgres/Redis/IPFS/Ceramic)
+        run: |
+          docker compose version || echo "Docker Compose v2 not found; falling back to docker-compose"
+          (docker compose up -d || docker-compose up -d)
+
+      - name: Wait for Postgres and Redis
+        run: |
+          for i in {1..30}; do
+            pg_isready -h 127.0.0.1 -p 5432 -U mycelix && redis-cli -h 127.0.0.1 ping && exit 0
+            sleep 2
+          done
+          exit 1
+
+      - name: API auth/tests
+        env:
+          DATABASE_URL: postgresql://mycelix:mycelix_dev_pass@localhost:5432/mycelix_music
+          REDIS_URL: redis://localhost:6379
+          ENABLE_CORS: "true"
+        run: npm run test --workspace=apps/api
+
+      - name: Build API
+        run: npm run build --workspace=apps/api
+
+      - name: Start API server
+        run: node apps/api/dist/index.js &
+
+      - name: Integration checks
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3100
+          CHECK_WEB: 'false'
+        run: npx tsx scripts/test-integration.ts
