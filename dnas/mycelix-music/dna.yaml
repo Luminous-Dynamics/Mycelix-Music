@@ -1,0 +1,42 @@
+# Mycelix Music DNA
+# Zero-cost streaming through agent-centric architecture
+
+name: mycelix-music
+uid: mycelix-music-v1
+
+coordinator:
+  zomes:
+    - name: catalog
+      bundled: target/wasm32-unknown-unknown/release/catalog.wasm
+      dependencies:
+        - name: catalog_integrity
+
+    - name: plays
+      bundled: target/wasm32-unknown-unknown/release/plays.wasm
+      dependencies:
+        - name: plays_integrity
+        - name: catalog_integrity
+
+    - name: balances
+      bundled: target/wasm32-unknown-unknown/release/balances.wasm
+      dependencies:
+        - name: balances_integrity
+
+    - name: trust
+      bundled: target/wasm32-unknown-unknown/release/trust.wasm
+      dependencies:
+        - name: trust_integrity
+
+integrity:
+  zomes:
+    - name: catalog_integrity
+      bundled: target/wasm32-unknown-unknown/release/catalog_integrity.wasm
+
+    - name: plays_integrity
+      bundled: target/wasm32-unknown-unknown/release/plays_integrity.wasm
+
+    - name: balances_integrity
+      bundled: target/wasm32-unknown-unknown/release/balances_integrity.wasm
+
+    - name: trust_integrity
+      bundled: target/wasm32-unknown-unknown/release/trust_integrity.wasm

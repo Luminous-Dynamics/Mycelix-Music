@@ -1,0 +1,13 @@
+[package]
+name = "balances"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "balances"
+
+[dependencies]
+hdk = "0.3"
+serde = "1"
+balances_integrity = { path = "../integrity" }

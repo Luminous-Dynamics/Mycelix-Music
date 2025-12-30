@@ -1,0 +1,13 @@
+[package]
+name = "plays_integrity"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "plays_integrity"
+
+[dependencies]
+hdi = "0.4"
+serde = "1"
+catalog_integrity = { path = "../../catalog/integrity" }

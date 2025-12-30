@@ -1,0 +1,13 @@
+[package]
+name = "catalog"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "catalog"
+
+[dependencies]
+hdk = "0.3"
+serde = "1"
+catalog_integrity = { path = "../integrity" }
