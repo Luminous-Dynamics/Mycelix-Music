@@ -5,3 +5,4 @@
 pub mod ipfs;
 pub mod blockchain;
 pub mod cache;
+pub mod indexer;

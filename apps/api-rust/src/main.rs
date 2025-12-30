@@ -11,6 +11,7 @@ use axum::{
     Json,
     extract::State,
 };
+use ethers::types::Address;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -19,6 +20,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod routes;
 mod services;
 mod models;
+
+use services::indexer::{IndexerConfig, spawn_indexer};
 
 /// Application state shared across handlers
 #[derive(Clone)]
@@ -74,6 +77,37 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "http://localhost:5001".into());
     let ipfs_client = ipfs_api_backend_hyper::IpfsClient::from_str(&ipfs_url)?;
     tracing::info!("Connected to IPFS");
+
+    // Start event indexer (if configured)
+    if let Ok(router_address) = std::env::var("ROUTER_ADDRESS") {
+        if let Ok(router_addr) = router_address.parse::<Address>() {
+            let rpc_url = std::env::var("RPC_URL")
+                .unwrap_or_else(|_| "http://localhost:8545".into());
+
+            let start_block = std::env::var("INDEXER_START_BLOCK")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+
+            let indexer_config = IndexerConfig {
+                rpc_url,
+                router_address: router_addr,
+                start_block,
+                poll_interval_secs: 12, // ~1 block on Gnosis
+                confirmations: 3,
+            };
+
+            tracing::info!(
+                "Starting event indexer for router {:?} from block {}",
+                router_addr,
+                start_block
+            );
+
+            spawn_indexer(indexer_config, db_pool.clone());
+        }
+    } else {
+        tracing::info!("Event indexer disabled (ROUTER_ADDRESS not set)");
+    }
 
     // Create app state
     let state = Arc::new(AppState {
