@@ -1,10 +1,10 @@
 /**
- * Mycelix Music SDK
- * TypeScript SDK for interacting with Mycelix Music smart contracts
+ * Mycelix Music Web App Library
+ * Re-exports SDK and app-specific utilities
  */
 
-// Export all economic strategy types and classes
-export * from './economic-strategies';
+// Re-export all SDK types and classes from the shared package
+export * from '@mycelix/sdk';
 
 // Export CDN helpers for audio delivery
 export * from './cdn';

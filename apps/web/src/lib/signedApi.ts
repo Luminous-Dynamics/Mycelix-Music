@@ -106,6 +106,7 @@ export async function postSignedPlay({
   listenerAddress,
   amount,
   paymentType,
+  nonce,
 }: {
   signer: ethers.Signer;
   songId: string;
